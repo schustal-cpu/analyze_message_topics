@@ -23,39 +23,12 @@ from pprint import pprint
 
 
 def main():
-
     local_dir = Path("data/")
     local_dir.mkdir(parents=True, exist_ok=True)
-    
+
     base_url = "https://fragdenstaat.de/api/v1/request/"
-    num_entries = 1000 #Anzahl Einträge die gesammelt werden sollen
-    sel_state = 92 #Bayern vgl. https://fragdenstaat.de/api/v1/jurisdiction/
-    
-    path_raw = local_dir / "fragdenstaat_messages_raw.json"
-    path_csv = local_dir / "fragdenstaat_messages.csv"
-
-    data = fetch_entries(base_url, num_entries, sel_state)
-    save_raw_json(data, path_raw)
-    extract_to_csv(data, path_csv)
-  
-
-
-# +
-def fetch_entries(url, num_entries, state=None):
-    """
-    Fetches up to num_entries filtered entries from FragDenStaat API.
-    Uses pagination via 'meta.next'.
-    """
-
-    results = []
-
-    params = {
-        "limit": 100  # maximale Seitengröße aus Performancegründen
-    }
-
-    # Filterung nach Bundesland, wenn state nicht übergeben wird, keine Filterung
-    if state:
-        params["jurisdiction"] = state
+    num_entries = 1000
+    sel_state = 92  # Bayern
 
     # Kamagnen die ignoriert werden sollen
     # Vorabfilterung da sonst zu 90% der Daten nur anfragen über die Abiturprüfungsergebnisse diverser Jahre enthalten und keine sinvolle Themenprüfung stattfinden kann.
@@ -64,9 +37,64 @@ def fetch_entries(url, num_entries, state=None):
         "https://fragdenstaat.de/api/v1/campaign/5/" # Kampagne: "Frag sie Abi!"
     }
 
+    fsd_path_raw = local_dir / "fragdenstaat_messages_raw.json"
+    yelp_path_raw = local_dir / "yelp_academic_dataset_review.json"
+    path_csv = local_dir / "combined_reviews.csv"
+
+    combined_rows = []
+
+    # FragDenStaat laden oder herunterladen
+    if not fsd_path_raw.exists():
+        print(f"{fsd_path_raw} existiert noch nicht. Daten werden geladen...")
+        fsd_data = fetch_fsd_entries(base_url, num_entries, sel_state, excluded_campaigns)
+        save_raw_json(fsd_data, fsd_path_raw)
+    else:
+        print(f"{fsd_path_raw} existiert bereits. Daten werden geladen...")
+        fsd_data = load_json(fsd_path_raw)
+
+    combined_rows.extend(extract_rows("fsd", fsd_data))
+
+    # Yelp Datensatz laden
+    if not yelp_path_raw.exists():
+        print(
+            f"{yelp_path_raw} nicht gefunden.\n"
+            "Bitte Yelp Dataset herunterladen, entpacken und unter data/ ablegen."
+        )
+    else:
+        print(f"{yelp_path_raw} existiert. Daten werden extrahiert...")
+        yelp_data = load_json(yelp_path_raw, num_entries)
+        combined_rows.extend(extract_rows("yelp", yelp_data))
+
+    
+    # CSV Datei mit Daten von FragdenStaat und YELP unter data/ erzeugen
+    df = pd.DataFrame(combined_rows)
+    df.to_csv(path_csv, index=False, encoding="utf-8")
+    
+    print(f"CSV gespeichert unter: {path_csv}")
+    print(f"{len(df)} Zeilen geschrieben.")
+
+
+# +
+def fetch_fsd_entries(url, num_entries, state=None, excluded_campaigns=None):
+    """
+    Fetches up to num_entries filtered entries from FragDenStaat API.
+    Uses pagination via 'meta.next'.
+    """
+
+    results = []
+
+    params = {
+        "limit": 50 
+    }
+
+    # robust: None → leeres Set
+    excluded_campaigns = set(excluded_campaigns or [])
+
+    if state:
+        params["jurisdiction"] = state
+
     print(f"Starte Download von bis zu {num_entries} Einträgen...")
 
-    # 
     while url:
         r = requests.get(url, params=params)
         if r.status_code != 200:
@@ -76,56 +104,29 @@ def fetch_entries(url, num_entries, state=None):
         data = r.json()
         objects = data.get("objects", [])
 
-        # Abbruch, wenn keine weiteren Daten in der API gefunden, bzw. auf der letzten Seite angekommen.
         if not objects:
             print("Keine weiteren Daten gefunden.")
             break
 
-        # Eingelesene Daten nach Kampagnen filtern
         for entry in objects:
-            if entry.get("campaign") not in excluded_campaigns:
+            campaign = entry.get("campaign")
+
+            # funktioniert jetzt auch bei leerem excluded_campaigns
+            if campaign not in excluded_campaigns:
                 results.append(entry)
 
-        # Abbruch, wenn Anzahl gewünschter Ergebnisse erreicht ist
         if len(results) >= num_entries:
             break
 
-        # Auf die nächte API Seite wechseln, da Anfragen auf mehrere Siten aufgeteilt sind.
         url = data.get("meta", {}).get("next")
-        params = None  # Parameter werden nur im ersten Request benötigt
-        
+        params = None
+
         print(f"Current Entries: {len(results)} -> going to Next page")
 
         time.sleep(0.2)
 
     print(f"{len(results[:num_entries])} Einträge heruntergeladen.")
     return results[:num_entries]
-
-def format_created(ts):
-    if not ts:
-        return None
-    dt = datetime.fromisoformat(ts)
-    return dt.strftime("%d.%m.%Y %H:%M")
-
-def extract_to_csv(data, csv_path):
-    """
-    Extracts ID and description and writes them to a CSV file.
-    """
-    rows = [
-        {
-            "origin": "FragdenStaat",
-            "id": d.get("id"),
-            "created": format_created(d.get("created_at")),
-            "title": (d.get("title") or "").strip(),
-            "description": (d.get("description") or "").strip()
-        }
-        for d in data
-    ]
-
-    df = pd.DataFrame(rows)
-    df.to_csv(csv_path, index=False, encoding="utf-8")
-    print(f"CSV gespeichert unter: {csv_path}")
-
 
 def save_raw_json(data, json_path):
     """
@@ -136,10 +137,63 @@ def save_raw_json(data, json_path):
 
     print(f"RAW JSON gespeichert unter: {json_path}")
 
+    
+def format_created(ts):
+    if not ts:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(ts)
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except ValueError:
+        return ts
+
+def load_json(path, limit=None):
+    with open(path, "r", encoding="utf-8") as f:
+        first_char = f.read(1)
+        f.seek(0)
+
+        if first_char == "[":
+            data = json.load(f)
+            return data[:limit] if limit is not None else data
+
+        results = []
+        for i, line in enumerate(f):
+            if limit is not None and i >= limit:
+                break
+
+            line = line.strip()
+            if line:
+                results.append(json.loads(line))
+
+        return results
+
+def extract_rows(origin, data):
+    mapping = {
+        "fsd": ("FragdenStaat", "id", "created_at", "description"),
+        "yelp": ("YELP", "review_id", "date", "text"),
+    }
+
+    try:
+        origin_name, id_f, created_f, text_f = mapping[origin]
+    except KeyError:
+        raise ValueError(f"Unbekannter origin-Wert: {origin}")
+
+    return [
+        {
+            "origin": origin_name,
+            "id": d.get(id_f),
+            "created": format_created(d.get(created_f)),
+            "review": (d.get(text_f) or "").strip(),
+        }
+        for d in data
+    ]
+
+
 
 # -
 
 if __name__ == "__main__":
     main()
-    
+
 
