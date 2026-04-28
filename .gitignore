@@ -1,5 +1,6 @@
 # Excludes because of data protection
-data/*
+data/*.json
+data/*.csv
 
 # Jupyter Notebook
 .ipynb_checkpoints
