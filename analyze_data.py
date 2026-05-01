@@ -81,54 +81,129 @@ if __name__ == "__main__":
     main()
 # +
 #### Analyse Funktionen #######
-def analyze_tokens(sentences, documents, languages=None, top_n=30):
-    """
-    Gibt relevante Statistiken zur Stopwort-Optimierung aus.
-    """
+def style_compare_table(df, caption=None):
+    count_cols = [
+        ("de", "Topic", "Count"),
+        ("de", "Sentiment", "Count"),
+        ("en", "Topic", "Count"),
+        ("en", "Sentiment", "Count"),
+    ]
 
-    print("\n=== 1. Häufigste Tokens (gesamt) ===")
-    token_counts = Counter(word for sent in sentences for word in sent)
-    for word, count in token_counts.most_common(top_n):
-        print(f"{word:20s} {count}")
+    styled = df.style
 
-    print("\n=== 2. Häufigste Tokens je Sprache ===")
-    if languages is not None:
-        df_tmp = pd.DataFrame({
-            "doc": documents,
-            "lang": languages
-        })
+    if caption:
+        styled = styled.set_caption(caption)
 
-        for lang in sorted(df_tmp["lang"].unique()):
-            tokens_lang = [
-                word
-                for doc, l in zip(sentences, languages) if l == lang
-                for word in doc
-            ]
-            counts_lang = Counter(tokens_lang)
-
-            print(f"\n--- Sprache: {lang} ---")
-            for word, count in counts_lang.most_common(top_n):
-                print(f"{word:20s} {count}")
-
-def compare_top_tokens(sentences_topic, sentences_sent, top_n=30):
-    # Top Tokens Topic
-    topic_top = pd.DataFrame(
-        Counter(w for s in sentences_topic for w in s).most_common(top_n),
-        columns=["topic_token", "topic_count"]
+    styled = (
+        styled
+        .hide(axis="index")
+        .set_table_styles([
+            # dünn: Topic | Sentiment innerhalb de
+            {
+                "selector": "th.col1, td.col1",
+                "props": [("border-right", "1px solid black")]
+            },
+            # dick: de ||| en
+            {
+                "selector": "th.col3, td.col3",
+                "props": [("border-right", "4px solid black")]
+            },
+            # dünn: Topic | Sentiment innerhalb en
+            {
+                "selector": "th.col5, td.col5",
+                "props": [("border-right", "1px solid black")]
+            },
+            {
+                "selector": "th",
+                "props": [
+                    ("text-align", "center"),
+                    ("font-weight", "bold")
+                ]
+            },
+            {
+                "selector": "caption",
+                "props": [
+                    ("caption-side", "top"),
+                    ("text-align", "center"),
+                    ("font-weight", "bold"),
+                    ("font-size", "16px")
+                ]
+            }
+        ])
+        .set_properties(**{"text-align": "left"})
+        .set_properties(
+            subset=count_cols,
+            **{"text-align": "right"}
+        )
+        .background_gradient(
+            subset=count_cols,
+            cmap="Blues"
+        )
     )
 
-    # Top Tokens Sentiment
-    sent_top = pd.DataFrame(
-        Counter(w for s in sentences_sent for w in s).most_common(top_n),
-        columns=["sent_token", "sent_count"]
+    return styled
+
+def analyze_tokens(data_by_lang, top_n=30):
+    data = {}
+
+    for lang in ["de", "en"]:
+        sentences = data_by_lang[lang]["sentences"]
+        tokens = [word for sent in sentences for word in sent]
+        counts = Counter(tokens).most_common(top_n)
+
+        data[(lang, "Token")] = [w for w, _ in counts]
+        data[(lang, "Count")] = [c for _, c in counts]
+
+    df = pd.DataFrame(data)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+
+    return style_token_table(
+        df,
+        split_after_col=1,
+        count_cols=[("de", "Count"), ("en", "Count")],
+        caption=f"Top {top_n} Tokens (de vs en)"
     )
 
-    # Vergleich nebeneinander
-    comparison = pd.concat([topic_top, sent_top], axis=1)
+def compare_top_tokens(data_topic, data_sentiment, top_n=30):
+    """
+    Vergleich Topic vs Sentiment für DE und EN gleichzeitig
+    """
 
-    display(comparison)
-    return comparison
+    def get_counts(data, lang):
+        tokens = [
+            word
+            for sent in data[lang]["sentences"]
+            for word in sent
+        ]
+        return Counter(tokens).most_common(top_n)
 
+    # Counts holen
+    topic_de = get_counts(data_topic, "de")
+    sent_de  = get_counts(data_sentiment, "de")
+
+    topic_en = get_counts(data_topic, "en")
+    sent_en  = get_counts(data_sentiment, "en")
+
+    # DataFrame bauen
+    df = pd.DataFrame({
+        ("de", "Topic", "Token"): [w for w, _ in topic_de],
+        ("de", "Topic", "Count"): [c for _, c in topic_de],
+        ("de", "Sentiment", "Token"): [w for w, _ in sent_de],
+        ("de", "Sentiment", "Count"): [c for _, c in sent_de],
+
+        ("en", "Topic", "Token"): [w for w, _ in topic_en],
+        ("en", "Topic", "Count"): [c for _, c in topic_en],
+        ("en", "Sentiment", "Token"): [w for w, _ in sent_en],
+        ("en", "Sentiment", "Count"): [c for _, c in sent_en],
+    })
+
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+
+    return style_compare_table(
+        df,
+        caption=f"Top {top_n} Tokens: Topic vs Sentiment (de/en)"
+    )
+    
 def print_lda_topics(model, feature_names, n_top_words=10):
     """
     Gibt die wichtigsten Wörter je Topic aus.
@@ -176,94 +251,64 @@ def compare_topic_models_multiindex(models, n_top_words=10):
 
 
 # +
-def batch_lemmatizer(texts, nlp, stopw, desc, sentences, n_process):
-    """
-    Führt eine batchweise Lemmatisierung und Filterung von Texten durch.
+def batch_lemmatizer(texts, nlp, stopw, desc, n_process):
+    sentences = []
 
-    Parameter:
-        texts (Iterable): Sammlung von Texten (z. B. pandas Series)
-        nlp (spaCy Language): geladenes Sprachmodell (z. B. Deutsch/Englisch)
-        stopw (set): Stopwortmenge für effiziente Filterung
-        desc (str): Beschreibung für Fortschrittsanzeige (tqdm)
-    """
-
-    # Verarbeitung der Texte in Batches für erhöhte Effizienz
-    # n_process ermöglicht zusätzlich Parallelisierung
     reviews = nlp.pipe(texts, batch_size=200, n_process=n_process)
 
-    # Iteration über die verarbeiteten Reviews mit Fortschrittsanzeige
     for review in tqdm(reviews, total=len(texts), desc=desc):
-
-        # Lemmatisierung und Filterung:
-        # - nur alphabetische Tokens (keine Zahlen/Sonderzeichen)
-        # - Entfernen spaCy-interner Stopwörter
-        # - zusätzliche Filterung über NTLK + manuelle Stopwortliste
         lemmas = [
             token.lemma_.lower()
             for token in review
             if token.is_alpha
-            and len(token) > 2 # Nachträglich ergänzt, da überflüssige Artifakte entdeckt
+            and len(token) > 2
             and not token.is_stop
             and token.lemma_.lower() not in stopw
         ]
 
-        # Nur nicht-leere Ergebnisse in die globale Satzliste aufnehmen
         if lemmas:
             sentences.append(lemmas)
+
+    return sentences
             
 def clean_and_tokenize(df, stopw_de, stopw_en, n_process):
-    """
-    Führt eine sprachspezifische Textvorverarbeitung durch.
-    
-    Schritte:
-    - Tokenisierung und Lemmatisierung (via spaCy)
-    - Entfernung von Stopwörtern
-    - Erstellung einer Satzliste (Token-Listen)
-    - Aufbau eines Vokabulars und Index
-    
-    Parameter:
-        df (DataFrame): Enthält mindestens 'review' und 'language'
-        stopw_de (list): deutsche Stopwörter
-        stopw_en (list): englische Stopwörter
-        n_process (int): Anzahl paralleler Prozesse für spaCy
-
-    Rückgabe:
-        sentences (list): Liste von Token-Listen
-        vocabulary (list): eindeutige Tokens
-        index (dict): Mapping Token → Index
-    """
-
-    sentences = []
-
-    # Umwandlung der Stopwortlisten in Sets für effiziente Lookups (O(1))
     stopw_de = set(stopw_de)
     stopw_en = set(stopw_en)
 
-    # Laden der spaCy-Modelle (Parser und NER deaktiviert für Performance)
     nlp_de = spacy.load("de_core_news_sm", disable=["parser", "ner"])
     nlp_en = spacy.load("en_core_web_sm", disable=["parser", "ner"])
 
-    # Trennung der Daten nach Sprache
     df_de = df[df["language"] == "de"]["review"].fillna("").astype(str)
     df_en = df[df["language"] == "en"]["review"].fillna("").astype(str)
 
-    # Sprachabhängige Lemmatisierung mittels spaCy
-    batch_lemmatizer(df_de, nlp_de, stopw_de, "Deutsch verarbeiten", sentences, n_process)
-    batch_lemmatizer(df_en, nlp_en, stopw_en, "Englisch verarbeiten", sentences, n_process)
+    result = {}
 
-    # Aufbau des Vokabulars:
-    # Alle Tokens werden gesammelt und Duplikate entfernt (set)
-    vocabulary = sorted(set(word for sent in sentences for word in sent))
+    for lang, texts, nlp, stopw, desc in [
+        ("de", df_de, nlp_de, stopw_de, "Deutsch verarbeiten"),
+        ("en", df_en, nlp_en, stopw_en, "Englisch verarbeiten"),
+    ]:
+        sentences = batch_lemmatizer(
+            texts=texts,
+            nlp=nlp,
+            stopw=stopw,
+            desc=desc,
+            n_process=n_process
+        )
 
-    # Erstellung eines Index (Token → numerischer Index)
-    index = {word: i for i, word in enumerate(vocabulary)}
+        documents = [" ".join(sentence) for sentence in sentences]
+        vocabulary = sorted(set(word for sent in sentences for word in sent))
+        index = {word: i for i, word in enumerate(vocabulary)}
 
-    # document Format für weiterbearbeitung druch NTLK 
-    documents = [" ".join(sentence) for sentence in sentences]
+        result[lang] = {
+            "sentences": sentences,
+            "documents": documents,
+            "vocabulary": vocabulary,
+            "index": index
+        }
 
-    return sentences, documents, vocabulary, index
+    return result
 
-def vectorize(Vectorizer, documents, languages):
+def vectorize(Vectorizer, data_by_lang):
     params = {
         "ngram_range": (1, 2),
         "min_df": 3,
@@ -271,19 +316,22 @@ def vectorize(Vectorizer, documents, languages):
         "dtype": np.float32,
     }
 
-    results={}
+    results = {}
 
-    for lang in sorted(set(languages)):
-        docs_lang = [doc for doc, l in zip(documents, languages) if l == lang]
+    for lang, data in data_by_lang.items():
+        documents = data["documents"]
 
         vectorizer = Vectorizer(**params)
-        matrix = vectorizer.fit_transform(docs_lang)
+        matrix = vectorizer.fit_transform(documents)
 
         results[lang] = {
             "matrix": matrix,
             "vectorizer": vectorizer,
             "feature_names": vectorizer.get_feature_names_out(),
-            "documents": docs_lang,
+            "documents": documents,
+            "sentences": data["sentences"],
+            "vocabulary": data["vocabulary"],
+            "index": data["index"]
         }
 
         print(f"{lang}: {matrix.shape[0]} Dokumente, {matrix.shape[1]} Features")
@@ -433,16 +481,16 @@ stopw_sentiment_en = sorted(set(stopw_sentiment_en))
 
 # Daten für Topic Modeling
 print("Cleaning Data - Topic Modeling")
-sentences_topic, documents_topic, vocabulary_topic, index_topic = clean_and_tokenize(
+data_topic = clean_and_tokenize(
     df_reviews,
     stopw_de=stopw_topic_de,
     stopw_en=stopw_topic_en,
-    n_process=2  # bei vielen Daten ggf. 2 oder 4 testen
+    n_process=2 # ggf. Anpassen für schnellere Verarbeitung
 )
 
 # Daten für Sentimentanalyse
 print("\nCleaning Data - Sentiment Analysis")
-sentences_sent, documents_sent, vocabulary_sent, index_sent = clean_and_tokenize(
+data_sentiment = clean_and_tokenize(
     df_reviews,
     stopw_de=stopw_sentiment_de,
     stopw_en=stopw_sentiment_en,
@@ -450,21 +498,11 @@ sentences_sent, documents_sent, vocabulary_sent, index_sent = clean_and_tokenize
 )
 
 
+
 # -
 
 
-analyze_tokens(
-    sentences_topic,
-    documents_topic,
-    languages=df_reviews["language"].tolist(),
-    top_n=30
-)
-
-comparison_tokens = compare_top_tokens(
-    sentences_topic,
-    sentences_sent,
-    top_n=30
-)
+compare_top_tokens(data_topic, data_sentiment, top_n=15)
 
 # +
 ############
@@ -472,17 +510,15 @@ comparison_tokens = compare_top_tokens(
 # Separate Pipelines: Topic Modeling vs. Sentiment
 ############
 
-languages = df_reviews["language"].tolist()
-
 print("Creating Vectors - Topic Modeling")
 vectors_topic = {}
-vectors_topic["bow_by_lang"] = vectorize(CountVectorizer, documents_topic, languages)
-vectors_topic["tfidf_by_lang"] = vectorize(TfidfVectorizer, documents_topic, languages)
+vectors_topic["bow_by_lang"] = vectorize(CountVectorizer, data_topic)
+vectors_topic["tfidf_by_lang"] = vectorize(TfidfVectorizer, data_topic)
 
 print("\nCreating Vectors - Sentiment Analysis")
 vectors_sentiment = {}
-vectors_sentiment["bow_by_lang"] = vectorize(CountVectorizer, documents_sent, languages)
-vectors_sentiment["tfidf_by_lang"] = vectorize(TfidfVectorizer, documents_sent, languages)
+vectors_sentiment["bow_by_lang"] = vectorize(CountVectorizer, data_sentiment)
+vectors_sentiment["tfidf_by_lang"] = vectorize(TfidfVectorizer, data_sentiment)
 
 
 # +
