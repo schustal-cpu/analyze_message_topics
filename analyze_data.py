@@ -16,7 +16,7 @@
 # +
 import re
 from tqdm import tqdm #Progress Indication
-from pprint import pprint #Saubere JSON darstellung
+from pprint import pprint,pformat #Saubere JSON darstellung
 
 import numpy as np 
 import nltk
@@ -35,8 +35,11 @@ pd.set_option('display.max_columns', None)
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
 
-#import matplotlib.pyplot as plt
-#import matplotlib.ticker as mtick
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from GerVADER.vaderSentimentGER import SentimentIntensityAnalyzer as GerSentimentIntensityAnalyzer
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 
 
 # -
@@ -80,8 +83,83 @@ def main():
 if __name__ == "__main__":
     main()
 # +
-#### Analyse Funktionen #######
-def style_compare_table(df, caption=None):
+### Style Funktionen #######
+
+def base_table_style(df, caption=None, extra_styles=None):
+    styles = [
+        {
+            "selector": "table",
+            "props": [
+                ("table-layout", "fixed"),
+                ("width", "100%")
+            ]
+        },
+        {
+            "selector": "th",
+            "props": [
+                ("text-align", "center"),
+                ("font-weight", "bold")
+            ]
+        },
+        {
+            "selector": "td",
+            "props": [
+                ("white-space", "normal"),
+                ("overflow-wrap", "break-word"),
+                ("word-wrap", "break-word"),
+                ("padding", "4px"),
+                ("border-right", "1px solid lightgray")
+            ]
+        },
+        {
+            "selector": "caption",
+            "props": [
+                ("caption-side", "top"),
+                ("text-align", "center"),
+                ("font-weight", "bold"),
+                ("font-size", "16px")
+            ]
+        }
+    ]
+
+    if extra_styles:
+        styles.extend(extra_styles)
+
+    styled = (
+        df.style
+        .hide(axis="index")
+        .set_table_styles(styles)
+        .set_properties(**{"text-align": "left"})
+    )
+
+    if caption:
+        styled = styled.set_caption(caption)
+
+    return styled
+
+def style_topic_comparison(df, caption=None):
+    method_start_positions = [
+        pos for pos, value in enumerate(df["Method"])
+        if value != ""
+    ]
+
+    def add_separator(row):
+        pos = df.index.get_loc(row.name)
+
+        if pos in method_start_positions and pos != 0:
+            return ["border-top: 3px solid black"] * len(row)
+
+        return [""] * len(row)
+
+    return (
+        base_table_style(
+            df,
+            caption=caption
+        )
+        .apply(add_separator, axis=1)
+    )
+    
+def style_compare_top_tokens(df, caption=None):
     count_cols = [
         ("de", "Topic", "Count"),
         ("de", "Sentiment", "Count"),
@@ -89,60 +167,77 @@ def style_compare_table(df, caption=None):
         ("en", "Sentiment", "Count"),
     ]
 
-    styled = df.style
+    extra_styles = [
+        {"selector": "th.col1, td.col1", "props": [("border-right", "1px solid black")]},
+        {"selector": "th.col3, td.col3", "props": [("border-right", "4px solid black")]},
+        {"selector": "th.col5, td.col5", "props": [("border-right", "1px solid black")]},
+    ]
 
-    if caption:
-        styled = styled.set_caption(caption)
-
-    styled = (
-        styled
-        .hide(axis="index")
-        .set_table_styles([
-            # dünn: Topic | Sentiment innerhalb de
-            {
-                "selector": "th.col1, td.col1",
-                "props": [("border-right", "1px solid black")]
-            },
-            # dick: de ||| en
-            {
-                "selector": "th.col3, td.col3",
-                "props": [("border-right", "4px solid black")]
-            },
-            # dünn: Topic | Sentiment innerhalb en
-            {
-                "selector": "th.col5, td.col5",
-                "props": [("border-right", "1px solid black")]
-            },
-            {
-                "selector": "th",
-                "props": [
-                    ("text-align", "center"),
-                    ("font-weight", "bold")
-                ]
-            },
-            {
-                "selector": "caption",
-                "props": [
-                    ("caption-side", "top"),
-                    ("text-align", "center"),
-                    ("font-weight", "bold"),
-                    ("font-size", "16px")
-                ]
-            }
-        ])
-        .set_properties(**{"text-align": "left"})
-        .set_properties(
-            subset=count_cols,
-            **{"text-align": "right"}
-        )
-        .background_gradient(
-            subset=count_cols,
-            cmap="Blues"
-        )
+    return (
+        base_table_style(df, caption, extra_styles)
+        .set_properties(subset=count_cols, **{"text-align": "right"})
+        .background_gradient(subset=count_cols, cmap="Blues")
     )
+
+def style_topic_sentiment(
+    df,
+    caption,
+    pos_threshold=0.3,
+    neg_threshold=-0.3,
+    pos_color="#c6efce",
+    neg_color="#ffc7ce"
+):
+    """
+    Styled Topic/Sentiment Tabelle mit:
+    - Caption
+    - konfigurierbaren Schwellenwerten
+    - konfigurierbaren Farben
+    """
+
+    #caption = f"{method} ({lang}) – Topic-Verteilung & Sentiment"
+
+    # --- Sentiment Highlight ---
+    def highlight_sentiment(val):
+        if val >= pos_threshold:
+            return f"background-color: {pos_color}"
+        elif val <= neg_threshold:
+            return f"background-color: {neg_color}"
+        return ""
+
+    # --- Dominantes Sentiment hervorheben ---
+    def highlight_dominance(row):
+        max_val = max(row["positive"], row["neutral"], row["negative"])
+        return [
+            "font-weight: bold" if v == max_val else ""
+            for v in [row["positive"], row["neutral"], row["negative"]]
+        ]
+
+    styled = base_table_style(df, caption=caption)
+
+    styled = styled.map(highlight_sentiment, subset=["avg_sentiment"])
+
+    styled = styled.apply(
+        highlight_dominance,
+        axis=1,
+        subset=["positive", "neutral", "negative"]
+    )
+        # Kein Umbruch für Keywords
+    if "topic_keywords" in df.columns:
+        styled = styled.set_properties(
+            subset=["topic_keywords"],
+            **{
+                "white-space": "nowrap",
+                "word-wrap": "normal",
+                "overflow-wrap": "normal",
+                "min-width": "800px"
+            }
+        )
 
     return styled
 
+
+# +
+#### Analyse Funktionen #######
 def analyze_tokens(data_by_lang, top_n=30):
     data = {}
 
@@ -199,10 +294,7 @@ def compare_top_tokens(data_topic, data_sentiment, top_n=30):
 
     df.columns = pd.MultiIndex.from_tuples(df.columns)
 
-    return style_compare_table(
-        df,
-        caption=f"Top {top_n} Tokens: Topic vs Sentiment (de/en)"
-    )
+    return df
     
 def print_lda_topics(model, feature_names, n_top_words=10):
     """
@@ -248,6 +340,38 @@ def compare_topic_models_multiindex(models, n_top_words=10):
 
     return pd.DataFrame(data)
 
+def build_topic_comparison_tables(doc_topics, methods, lang):
+    
+    def to_word_list(words):
+        if isinstance(words, list):
+            return words
+        return [w.strip() for w in str(words).split(",")]
+
+    rows = []
+
+    for method_key, lang_results in doc_topics.items():
+        df = lang_results[lang]
+        title = methods[method_key]["title"]
+
+        # Topic → Keywords (ein Eintrag pro Topic)
+        topic_map = (
+            df.groupby("dominant_topic")["topic_keywords"]
+            .first()
+            .sort_index()
+            .apply(to_word_list)
+        )
+
+        max_len = max(len(words) for words in topic_map)
+
+        for i in range(max_len):
+            row = {"Method": title if i == 0 else ""}
+
+            for topic_id, words in topic_map.items():
+                row[f"Topic {topic_id + 1}"] = words[i] if i < len(words) else ""
+
+            rows.append(row)
+
+    return pd.DataFrame(rows)
 
 
 # +
@@ -337,7 +461,115 @@ def vectorize(Vectorizer, data_by_lang):
         print(f"{lang}: {matrix.shape[0]} Dokumente, {matrix.shape[1]} Features")
 
     return results
+
+def assign_topics_with_keywords(model_result, method, n_top_words=10):
+    """
+    Einheitliche Topic-Zuordnung für LDA und LSA inkl. Top-Keywords.
+
+    Erwartet in model_result:
+        - "doc_topic_matrix"
+        - "documents"
+        - "model"
+        - "features"
+
+    Parameter:
+        method (str): 'lda' oder 'lsa'
+        n_top_words (int): Anzahl Top-Wörter pro Topic
+
+    Rückgabe:
+        DataFrame mit:
+        - document
+        - dominant_topic
+        - topic_strength
+        - topic_keywords
+    """
+
+    doc_topic_matrix = model_result["doc_topic_matrix"]
+
+    # --- Topic-Zuordnung ---
+    if method == "lda":
+        dominant_topics = doc_topic_matrix.argmax(axis=1)
+        topic_strengths = doc_topic_matrix.max(axis=1)
+
+    elif method == "lsa":
+        dominant_topics = np.abs(doc_topic_matrix).argmax(axis=1)
+        topic_strengths = np.abs(doc_topic_matrix).max(axis=1)
+
+    else:
+        raise ValueError("method muss 'lda' oder 'lsa' sein")
+
+    # --- Keywords pro Topic ---
+    model = model_result["model"]
+    features = model_result["features"]
+
+    topic_keywords = {
+        i + 1: ", ".join(
+            features[j]
+            for j in topic.argsort()[-n_top_words:][::-1]
+        )
+        for i, topic in enumerate(model.components_)
+    }
+
+    # --- DataFrame ---
+    df = pd.DataFrame({
+        "document": model_result["documents"],
+        "dominant_topic": dominant_topics + 1,
+        "topic_strength": topic_strengths
+    })
+
+    # Keywords mappen
+    df["topic_keywords"] = df["dominant_topic"].map(topic_keywords)
+
+    return df
+
+def build_sentiment_df(model_result, lang, pos=0.05, neg=-0.05):
+    """
+    Berechnet Sentiment Score + Label pro Dokument.
+
+    Parameter:
+        model_result: enthält 'documents'
+        lang: 'de' oder 'en'
+        pos/neg: Schwellenwerte für Klassifikation
+
+    Rückgabe:
+        DataFrame mit:
+        - document
+        - sentiment_score
+        - sentiment_label
+    """
+
+    analyzer_en = SentimentIntensityAnalyzer()
+    analyzer_de = GerSentimentIntensityAnalyzer()
     
+    documents = model_result["documents"]
+
+    # richtigen Analyzer wählen
+    if lang == "en":
+        analyzer = analyzer_en
+    elif lang == "de":
+        analyzer = analyzer_de
+    else:
+        raise ValueError("Unsupported language")
+
+    # Scores berechnen
+    scores = [
+        analyzer.polarity_scores(doc)["compound"]
+        for doc in documents
+    ]
+
+    # DataFrame erstellen
+    df = pd.DataFrame({
+        "document": documents,
+        "sentiment_score": scores
+    })
+
+    # Label direkt inline
+    df["sentiment_label"] = df["sentiment_score"].apply(
+        lambda s: "positive" if s >= pos else "negative" if s <= neg else "neutral"
+    )
+
+    return df
+
 
 
 # +
@@ -502,7 +734,9 @@ data_sentiment = clean_and_tokenize(
 # -
 
 
-compare_top_tokens(data_topic, data_sentiment, top_n=15)
+top_n = 15
+compare_top_tokens_table = compare_top_tokens(data_topic, data_sentiment, top_n)
+display(style_compare_top_tokens(compare_top_tokens_table, caption=f"Top {top_n} Tokens: Topic vs Sentiment (de/en)"))
 
 # +
 ############
@@ -526,239 +760,182 @@ vectors_sentiment["tfidf_by_lang"] = vectorize(TfidfVectorizer, data_sentiment)
 # Topic Modeling
 ############
 
-n_topics = 10
-n_top_words = 15
-max_iter = 20
+# Zentrale Parameter für alle Topic-Modelle
+n_topics = 10          # Anzahl der Topics
+n_top_words = 15       # Anzahl der Top-Wörter pro Topic
+max_iter = 20          # Anzahl der Trainingsdurchläufe für LDA
+batch_size = 500       # Batch-Größe für das Online-Learning bei LDA
 
-# --- BoW + LDA sprachgetrennt ---
-lda_bow_topics_by_lang = {}
+# Zentrale Konfiguration aller Topic-Modelle
+methods = {
+    "bow_lda": {
+        "title": "LDA BoW",
+        "vectors_by_lang": vectors_topic["bow_by_lang"],
+        "method_type": "lda",
+    },
+    "tfidf_lda": {
+        "title": "LDA TF-IDF",
+        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
+        "method_type": "lda",
+    },
+    "tfidf_lsa": {
+        "title": "LSA TF-IDF",
+        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
+        "method_type": "lsa",
+    },
+}
 
-for lang, data in vectors_topic["bow_by_lang"].items():
-    lda_model = LatentDirichletAllocation(
-        n_components=n_topics,
-        random_state=42,
-        learning_method="online",
-        max_iter=1,
-        evaluate_every=-1
-    )
+# Jedes konfigurierte Modell trainieren
+for method_key, config in methods.items():
 
-    for _ in tqdm(range(max_iter), desc=f"LDA BoW Topic trainieren ({lang})"):
-        lda_model.partial_fit(data["matrix"])
+    # Hier werden die trainierten Ergebnisse je Sprache gespeichert
+    config["topics_by_lang"] = {}
 
-    lda_bow_topics_by_lang[lang] = {
-        "model": lda_model,
-        "matrix": data["matrix"],
-        "features": data["feature_names"],
-        "documents": data["documents"]
-    }
+    # Sprachgetrenntes Training, für "de" und "en"
+    for lang, data in config["vectors_by_lang"].items():
+        X = data["matrix"]  # Dokument-Term-Matrix der jeweiligen Sprache
 
-# --- TF-IDF + LDA sprachgetrennt ---
+        # LDA-Modell trainieren
+        if config["method_type"] == "lda":
+            model = LatentDirichletAllocation(
+                n_components=n_topics,
+                random_state=42,
+                learning_method="online",
+                max_iter=max_iter,
+                evaluate_every=-1
+            )
 
-lda_tfidf_topics_by_lang = {}
+            # Manuelles Online-Training über mehrere Iterationen und Batches
+            for _ in tqdm(range(max_iter), desc=f'{config["title"]} Topic tranieren ({lang})'):
+                for i in range(0, X.shape[0], batch_size):
+                    model.partial_fit(X[i:i + batch_size])
 
-for lang, data in vectors_topic["tfidf_by_lang"].items():
-    lda_model = LatentDirichletAllocation(
-        n_components=n_topics,
-        random_state=42,
-        learning_method="online",
-        max_iter=1,
-        evaluate_every=-1
-    )
+            # Dokumente in Topic-Wahrscheinlichkeiten transformieren
+            topic_matrix = model.transform(X)
 
-    for _ in tqdm(range(max_iter), desc=f"LDA TF-IDF Topic trainieren ({lang})"):
-        lsa_matrix = lda_model.partial_fit(data["matrix"])
+        # LSA-Modell trainieren
+        elif config["method_type"] == "lsa":
+            model = TruncatedSVD(
+                n_components=n_topics,
+                random_state=42
+            )
 
-    lda_tfidf_topics_by_lang[lang] = {
-        "model": lda_model,
-        "matrix": data["matrix"],
-        "features": data["feature_names"]
-    }
+            # Dokumente direkt in latente Topic-Komponenten transformieren
+            topic_matrix = model.fit_transform(X)
+            print(f'{config["title"]} Topic trainiert ({lang})')
 
-# --- TF-IDF + LSA sprachgetrennt ---
-lsa_tfidf_topics_by_lang = {}
 
-for lang, data in tqdm(vectors_topic["tfidf_by_lang"].items(), desc="LSA TF-IDF Topic trainieren (de/en)"):
-
-    lsa_model = TruncatedSVD(
-        n_components=n_topics,
-        random_state=42
-    )
-
-    lsa_matrix = lsa_model.fit_transform(data["matrix"])
-
-    lsa_tfidf_topics_by_lang[lang] = {
-        "model": lsa_model,
-        "matrix": lsa_matrix,
-        "features": data["feature_names"]
-    }
+        # Modell- und Ergebnisdaten zentral im methods-Dict speichern
+        config["topics_by_lang"][lang] = {
+            "model": model,
+            "doc_topic_matrix": topic_matrix,
+            "matrix": X,
+            "features": data["feature_names"],
+            "documents": data["documents"]
+        }
 
 
 # +
-df_bow_lda_en = topics_matrix(
-    lda_bow_topics_by_lang["en"]["model"],
-    vectors_topic["bow_by_lang"]["en"]["feature_names"],
-    n_top_words=10
-)
+def get_structure(d, max_depth=3, current_depth=0):
+    if current_depth >= max_depth:
+        return "..."
 
-df_tfidf_lda_en = topics_matrix(
-    lda_tfidf_topics_by_lang["en"]["model"],
-    vectors_topic["tfidf_by_lang"]["en"]["feature_names"],
-    n_top_words=10
-)
+    if isinstance(d, dict):
+        return {
+            k: get_structure(v, max_depth, current_depth + 1)
+            for k, v in d.items()
+        }
 
-df_tfidf_lsa_en = topics_matrix(
-    lsa_tfidf_topics_by_lang["en"]["model"],
-    vectors_topic["tfidf_by_lang"]["en"]["feature_names"],
-    n_top_words=10
-)
+    return type(d).__name__
 
 
-df_bow_lda_de = topics_matrix(
-    lda_bow_topics_by_lang["de"]["model"],
-    vectors_topic["bow_by_lang"]["de"]["feature_names"],
-    n_top_words=10
-)
-
-df_tfidf_lda_de = topics_matrix(
-    lda_tfidf_topics_by_lang["de"]["model"],
-    vectors_topic["tfidf_by_lang"]["de"]["feature_names"],
-    n_top_words=10
-)
-
-df_tfidf_lsa_de = topics_matrix(
-    lsa_tfidf_topics_by_lang["de"]["model"],
-    vectors_topic["tfidf_by_lang"]["de"]["feature_names"],
-    n_top_words=10
-)
-
-
-from IPython.display import display, Markdown
-
-# -------- Englisch --------
-display(Markdown("## BoW + LDA (EN)"))
-display(df_bow_lda_en)
-
-display(Markdown("## TF-IDF + LDA (EN)"))
-display(df_tfidf_lda_en)
-
-display(Markdown("## TF-IDF + LSA (EN)"))
-display(df_tfidf_lsa_en)
-
-
-# -------- Deutsch --------
-display(Markdown("## BoW + LDA (DE)"))
-display(df_bow_lda_de)
-
-display(Markdown("## TF-IDF + LDA (DE)"))
-display(df_tfidf_lda_de)
-
-display(Markdown("## TF-IDF + LSA (DE)"))
-display(df_tfidf_lsa_de)
+pprint(get_structure(next(iter(methods.values())), max_depth=3))
 
 # +
-models_topic_de = {
-    "BoW/LDA (de)": {
-        "model": lda_bow_topics_by_lang["de"]["model"],
-        "features": lda_bow_topics_by_lang["de"]["features"]
-    },
+############
+# Topic + Sentiment Analyse
+############
 
-    "TF-IDF/LDA (de)": {
-        "model": lda_tfidf_topics_by_lang["de"]["model"],
-        "features": lda_tfidf_topics_by_lang["de"]["features"]
-    },
 
-    "TF-IDF/LSA (de)": {
-        "model": lsa_tfidf_topics_by_lang["de"]["model"],
-        "features": lsa_tfidf_topics_by_lang["de"]["features"]
+# 1. Topic-Zuordnung je Modell
+doc_topics = {
+    method: {
+        lang: assign_topics_with_keywords(
+            result,
+            method=config["method_type"]
+        )
+        for lang, result in config["topics_by_lang"].items()
     }
+    for method, config in methods.items()
 }
 
-models_topic_en = {
-    "BoW/LDA (en)": {
-        "model": lda_bow_topics_by_lang["en"]["model"],
-        "features": lda_bow_topics_by_lang["en"]["features"]
-    },
+# 2. Sentiment je Sprache berechnen
+# Sentiment basiert auf den Sentiment-Dokumenten, nicht auf BoW/TF-IDF
+sentiments = {
+    lang: build_sentiment_df(result, lang=lang)
+    for lang, result in vectors_sentiment["tfidf_by_lang"].items()
+}
 
-    "TF-IDF/LDA (en)": {
-        "model": lda_tfidf_topics_by_lang["en"]["model"],
-        "features": lda_tfidf_topics_by_lang["en"]["features"]
-    },
-
-    "TF-IDF/LSA (en)": {
-        "model": lsa_tfidf_topics_by_lang["en"]["model"],
-        "features": lsa_tfidf_topics_by_lang["en"]["features"]
+# 3. Topic-Zuordnung + Sentiment verbinden
+doc_topics_sentiment = {
+    method: {
+        lang: df_topics.merge(
+            sentiments[lang],
+            on="document",
+            how="left"
+        )
+        for lang, df_topics in lang_results.items()
     }
+    for method, lang_results in doc_topics.items()
 }
 
-df_topic_comparison_de = compare_topic_models_multiindex(
-    models_topic_de,
-    n_top_words
-)
+# 4. Aggregierte Topic/Sentiment-Tabelle je Modell
+topic_sentiment_summary = {
+    method: {
+        lang: (
+            df.groupby("dominant_topic")
+            .agg(
+                documents=("document", "count"),
+                avg_sentiment=("sentiment_score", "mean"),
+                positive=("sentiment_label", lambda x: (x == "positive").sum()),
+                neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
+                negative=("sentiment_label", lambda x: (x == "negative").sum()),
+                topic_keywords=("topic_keywords", "first")
+            )
+            .reset_index()
+        )
+        for lang, df in lang_results.items()
+    }
+    for method, lang_results in doc_topics_sentiment.items()
+}
 
-df_topic_comparison_en = compare_topic_models_multiindex(
-    models_topic_en,
-    n_top_words
-)
-
-display(df_topic_comparison_de)
-display(df_topic_comparison_en)
 
 # +
-from IPython.display import display, Markdown
+# 5. Ausgabe: BoW/LDA Topic + Sentiment
 
-display(Markdown("## TF-IDF + LSA (EN)"))
-display(df_tfidf_lsa_en)
+for lang in ["de", "en"]:
+    if lang == "de":
+        pos_threshold, neg_threshold = 0.5, -0.5
+    elif lang == "en":
+        pos_threshold, neg_threshold = 0.1, -0.1
 
-display(Markdown("## TF-IDF + LSA (DE)"))
-display(df_tfidf_lsa_de)
-
+    for method_key, config in methods.items():
+        display(style_topic_sentiment(
+            topic_sentiment_summary[method_key][lang],
+            f"{config["title"]} ({lang}) - Topic & Sentiment Matrix",
+            pos_threshold=pos_threshold,
+            neg_threshold=neg_threshold
+        ))
 
 # +
-def flatten_columns(df):
-    df = df.copy()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [" | ".join(map(str, col)).strip() for col in df.columns]
-    return df
+# 6. Ausgabe: Topics per Method/ Language
+topic_table_de = build_topic_comparison_tables(doc_topics,methods,"de")
+topic_table_en = build_topic_comparison_tables(doc_topics,methods,"en")
 
-def highlight_duplicates(df):
-    df = flatten_columns(df).astype(str).replace({"nan": "", "None": ""})
-
-    counts = pd.Series(df.to_numpy().ravel())
-    counts = counts[counts != ""].value_counts()
-
-    def color_cell(value):
-        freq = counts.get(str(value), 0)
-        if freq >= 5:
-            return "background-color: #f4b183"
-        elif freq >= 3:
-            return "background-color: #ffd966"
-        elif freq >= 2:
-            return "background-color: #fff2cc"
-        return ""
-
-    return df.style.map(color_cell)
-
-def show_topic_tables(tables, language):
-    display(Markdown(f"# Topic-Vergleich {language}"))
-
-    for title, df in tables.items():
-        display(Markdown(f"## {title}"))
-        display(highlight_duplicates(df))
-
-tables_de = {
-    "BoW + LDA": df_bow_lda_de,
-    "TF-IDF + LDA": df_tfidf_lda_de,
-    "TF-IDF + LSA": df_tfidf_lsa_de
-}
-
-tables_en = {
-    "BoW + LDA": df_bow_lda_en,
-    "TF-IDF + LDA": df_tfidf_lda_en,
-    "TF-IDF + LSA": df_tfidf_lsa_en
-}
-
-show_topic_tables(tables_de, "Deutsch")
-show_topic_tables(tables_en, "Englisch")
+display(style_topic_comparison(topic_table_de, "Topic Vergleich - DE"))
+print()
+display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
 # -
+
 
 
