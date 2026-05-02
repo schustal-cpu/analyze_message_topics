@@ -40,6 +40,10 @@ from GerVADER.vaderSentimentGER import SentimentIntensityAnalyzer as GerSentimen
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+import seaborn as sns
+
+from src.styles import *
+from src.visualization import *
 
 
 # -
@@ -73,306 +77,6 @@ import matplotlib.ticker as mtick
 # -> TF-IDF + LSA
 #
 #
-
-# +
-def main():
-
-    # To be filled   
-    print("To be filled")
-
-if __name__ == "__main__":
-    main()
-# +
-### Style Funktionen #######
-
-def base_table_style(df, caption=None, extra_styles=None):
-    styles = [
-        {
-            "selector": "table",
-            "props": [
-                ("table-layout", "fixed"),
-                ("width", "100%")
-            ]
-        },
-        {
-            "selector": "th",
-            "props": [
-                ("text-align", "center"),
-                ("font-weight", "bold")
-            ]
-        },
-        {
-            "selector": "td",
-            "props": [
-                ("white-space", "normal"),
-                ("overflow-wrap", "break-word"),
-                ("word-wrap", "break-word"),
-                ("padding", "4px"),
-                ("border-right", "1px solid lightgray")
-            ]
-        },
-        {
-            "selector": "caption",
-            "props": [
-                ("caption-side", "top"),
-                ("text-align", "center"),
-                ("font-weight", "bold"),
-                ("font-size", "16px")
-            ]
-        }
-    ]
-
-    if extra_styles:
-        styles.extend(extra_styles)
-
-    styled = (
-        df.style
-        .hide(axis="index")
-        .set_table_styles(styles)
-        .set_properties(**{"text-align": "left"})
-    )
-
-    if caption:
-        styled = styled.set_caption(caption)
-
-    return styled
-
-def style_topic_comparison(df, caption=None):
-    method_start_positions = [
-        pos for pos, value in enumerate(df["Method"])
-        if value != ""
-    ]
-
-    def add_separator(row):
-        pos = df.index.get_loc(row.name)
-
-        if pos in method_start_positions and pos != 0:
-            return ["border-top: 3px solid black"] * len(row)
-
-        return [""] * len(row)
-
-    return (
-        base_table_style(
-            df,
-            caption=caption
-        )
-        .apply(add_separator, axis=1)
-    )
-    
-def style_compare_top_tokens(df, caption=None):
-    count_cols = [
-        ("de", "Topic", "Count"),
-        ("de", "Sentiment", "Count"),
-        ("en", "Topic", "Count"),
-        ("en", "Sentiment", "Count"),
-    ]
-
-    extra_styles = [
-        {"selector": "th.col1, td.col1", "props": [("border-right", "1px solid black")]},
-        {"selector": "th.col3, td.col3", "props": [("border-right", "4px solid black")]},
-        {"selector": "th.col5, td.col5", "props": [("border-right", "1px solid black")]},
-    ]
-
-    return (
-        base_table_style(df, caption, extra_styles)
-        .set_properties(subset=count_cols, **{"text-align": "right"})
-        .background_gradient(subset=count_cols, cmap="Blues")
-    )
-
-def style_topic_sentiment(
-    df,
-    caption,
-    pos_threshold=0.3,
-    neg_threshold=-0.3,
-    pos_color="#c6efce",
-    neg_color="#ffc7ce"
-):
-    """
-    Styled Topic/Sentiment Tabelle mit:
-    - Caption
-    - konfigurierbaren Schwellenwerten
-    - konfigurierbaren Farben
-    """
-
-    #caption = f"{method} ({lang}) – Topic-Verteilung & Sentiment"
-
-    # --- Sentiment Highlight ---
-    def highlight_sentiment(val):
-        if val >= pos_threshold:
-            return f"background-color: {pos_color}"
-        elif val <= neg_threshold:
-            return f"background-color: {neg_color}"
-        return ""
-
-    # --- Dominantes Sentiment hervorheben ---
-    def highlight_dominance(row):
-        max_val = max(row["positive"], row["neutral"], row["negative"])
-        return [
-            "font-weight: bold" if v == max_val else ""
-            for v in [row["positive"], row["neutral"], row["negative"]]
-        ]
-
-    styled = base_table_style(df, caption=caption)
-
-    styled = styled.map(highlight_sentiment, subset=["avg_sentiment"])
-
-    styled = styled.apply(
-        highlight_dominance,
-        axis=1,
-        subset=["positive", "neutral", "negative"]
-    )
-        # Kein Umbruch für Keywords
-    if "topic_keywords" in df.columns:
-        styled = styled.set_properties(
-            subset=["topic_keywords"],
-            **{
-                "white-space": "nowrap",
-                "word-wrap": "normal",
-                "overflow-wrap": "normal",
-                "min-width": "800px"
-            }
-        )
-
-    return styled
-
-
-# +
-#### Analyse Funktionen #######
-def analyze_tokens(data_by_lang, top_n=30):
-    data = {}
-
-    for lang in ["de", "en"]:
-        sentences = data_by_lang[lang]["sentences"]
-        tokens = [word for sent in sentences for word in sent]
-        counts = Counter(tokens).most_common(top_n)
-
-        data[(lang, "Token")] = [w for w, _ in counts]
-        data[(lang, "Count")] = [c for _, c in counts]
-
-    df = pd.DataFrame(data)
-    df.columns = pd.MultiIndex.from_tuples(df.columns)
-
-    return style_token_table(
-        df,
-        split_after_col=1,
-        count_cols=[("de", "Count"), ("en", "Count")],
-        caption=f"Top {top_n} Tokens (de vs en)"
-    )
-
-def compare_top_tokens(data_topic, data_sentiment, top_n=30):
-    """
-    Vergleich Topic vs Sentiment für DE und EN gleichzeitig
-    """
-
-    def get_counts(data, lang):
-        tokens = [
-            word
-            for sent in data[lang]["sentences"]
-            for word in sent
-        ]
-        return Counter(tokens).most_common(top_n)
-
-    # Counts holen
-    topic_de = get_counts(data_topic, "de")
-    sent_de  = get_counts(data_sentiment, "de")
-
-    topic_en = get_counts(data_topic, "en")
-    sent_en  = get_counts(data_sentiment, "en")
-
-    # DataFrame bauen
-    df = pd.DataFrame({
-        ("de", "Topic", "Token"): [w for w, _ in topic_de],
-        ("de", "Topic", "Count"): [c for _, c in topic_de],
-        ("de", "Sentiment", "Token"): [w for w, _ in sent_de],
-        ("de", "Sentiment", "Count"): [c for _, c in sent_de],
-
-        ("en", "Topic", "Token"): [w for w, _ in topic_en],
-        ("en", "Topic", "Count"): [c for _, c in topic_en],
-        ("en", "Sentiment", "Token"): [w for w, _ in sent_en],
-        ("en", "Sentiment", "Count"): [c for _, c in sent_en],
-    })
-
-    df.columns = pd.MultiIndex.from_tuples(df.columns)
-
-    return df
-    
-def print_lda_topics(model, feature_names, n_top_words=10):
-    """
-    Gibt die wichtigsten Wörter je Topic aus.
-    """
-    for topic_idx, topic in enumerate(model.components_):
-        top_indices = topic.argsort()[:-n_top_words - 1:-1]
-        top_words = [feature_names[i] for i in top_indices]
-
-        print(f"\nTopic {topic_idx + 1}:")
-        print(", ".join(top_words))
-
-def topics_matrix(model, feature_names, n_top_words=10, prefix="Topic"):
-    """
-    Erstellt eine Topic-Tabelle für ein einzelnes Modell.
-    Spalten: Topic1, Topic2, ...
-    Zeilen: Top-Wörter
-    """
-    topics = {}
-
-    for i, topic in enumerate(model.components_):
-        top_idx = topic.argsort()[-n_top_words:][::-1]
-        topics[f"{prefix}{i+1}"] = [feature_names[j] for j in top_idx]
-
-    return pd.DataFrame(topics)
-
-
-def compare_topic_models_multiindex(models, n_top_words=10):
-    first_model = next(iter(models.values()))["model"]
-    n_topics = first_model.components_.shape[0]
-
-    data = {}
-
-    for topic_idx in range(n_topics):
-        for method_name, d in models.items():
-            topic = d["model"].components_[topic_idx]
-            features = d["features"]
-
-            top_idx = topic.argsort()[-n_top_words:][::-1]
-            words = [features[i] for i in top_idx]
-
-            data[(f"Topic {topic_idx+1}", method_name)] = words
-
-    return pd.DataFrame(data)
-
-def build_topic_comparison_tables(doc_topics, methods, lang):
-    
-    def to_word_list(words):
-        if isinstance(words, list):
-            return words
-        return [w.strip() for w in str(words).split(",")]
-
-    rows = []
-
-    for method_key, lang_results in doc_topics.items():
-        df = lang_results[lang]
-        title = methods[method_key]["title"]
-
-        # Topic → Keywords (ein Eintrag pro Topic)
-        topic_map = (
-            df.groupby("dominant_topic")["topic_keywords"]
-            .first()
-            .sort_index()
-            .apply(to_word_list)
-        )
-
-        max_len = max(len(words) for words in topic_map)
-
-        for i in range(max_len):
-            row = {"Method": title if i == 0 else ""}
-
-            for topic_id, words in topic_map.items():
-                row[f"Topic {topic_id + 1}"] = words[i] if i < len(words) else ""
-
-            rows.append(row)
-
-    return pd.DataFrame(rows)
-
 
 # +
 def batch_lemmatizer(texts, nlp, stopw, desc, n_process):
@@ -795,7 +499,7 @@ for method_key, config in methods.items():
     for lang, data in config["vectors_by_lang"].items():
         X = data["matrix"]  # Dokument-Term-Matrix der jeweiligen Sprache
 
-        # LDA-Modell trainieren
+        # LDA-Modell trainieren - Für BoW und TF-IDF mit den selben Werten
         if config["method_type"] == "lda":
             model = LatentDirichletAllocation(
                 n_components=n_topics,
@@ -806,7 +510,7 @@ for method_key, config in methods.items():
             )
 
             # Manuelles Online-Training über mehrere Iterationen und Batches
-            for _ in tqdm(range(max_iter), desc=f'{config["title"]} Topic tranieren ({lang})'):
+            for _ in tqdm(range(max_iter), desc=f'{config["title"]} Topic trainieren ({lang})'):
                 for i in range(0, X.shape[0], batch_size):
                     model.partial_fit(X[i:i + batch_size])
 
@@ -899,8 +603,8 @@ topic_sentiment_summary = {
                 avg_sentiment=("sentiment_score", "mean"),
                 positive=("sentiment_label", lambda x: (x == "positive").sum()),
                 neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
-                negative=("sentiment_label", lambda x: (x == "negative").sum()),
-                topic_keywords=("topic_keywords", "first")
+                negative=("sentiment_label", lambda x: (x == "negative").sum())
+                #topic_keywords=("topic_keywords", "first")
             )
             .reset_index()
         )
@@ -932,10 +636,193 @@ for lang in ["de", "en"]:
 topic_table_de = build_topic_comparison_tables(doc_topics,methods,"de")
 topic_table_en = build_topic_comparison_tables(doc_topics,methods,"en")
 
-display(style_topic_comparison(topic_table_de, "Topic Vergleich - DE"))
-print()
-display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
-# -
+#display(style_topic_comparison(topic_table_de, "Topic Vergleich - DE"))
+#print()
+#display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
 
+
+# +
+def plot_top_words_from_methods(methods, method_key, lang, topic_id, n_words=10):
+    data = methods[method_key]["topics_by_lang"][lang]
+
+    model = data["model"]
+    features = data["features"]
+
+    weights = model.components_[topic_id]
+    top_idx = weights.argsort()[-n_words:][::-1]
+
+    words = [features[i] for i in top_idx]
+    values = [weights[i] for i in top_idx]
+
+    plt.figure(figsize=(8, 4))
+    plt.barh(words[::-1], values[::-1])
+    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic {topic_id + 1}')
+    plt.xlabel("Gewichtung")
+    plt.tight_layout()
+    plt.show()
+
+plot_top_words_from_methods(methods, "bow_lda", "de", topic_id=0)
+plot_top_words_from_methods(methods, "tfidf_lsa", "en", topic_id=2)
+
+
+# +
+def plot_topic_distribution_from_methods(methods, method_key, lang):
+    data = methods[method_key]["topics_by_lang"][lang]
+    doc_topic_matrix = data["doc_topic_matrix"]
+
+    if methods[method_key]["method_type"] == "lsa":
+        doc_topic_matrix = np.abs(doc_topic_matrix)
+
+    dominant_topics = doc_topic_matrix.argmax(axis=1)
+
+    counts = (
+        pd.Series(dominant_topics)
+        .value_counts()
+        .sort_index()
+    )
+
+    plt.figure(figsize=(8, 4))
+    counts.plot(kind="bar")
+    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic Verteilung')
+    plt.xlabel("Topic")
+    plt.ylabel("Anzahl Dokumente")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+
+plot_topic_distribution_from_methods(methods, "tfidf_lsa", "de")
+plot_topic_distribution_from_methods(methods, "tfidf_lsa", "en")
+
+
+# +
+def plot_topic_sentiment_from_summary(summary, method_key, lang):
+    df = summary[method_key][lang]
+
+    plot_df = df.set_index("dominant_topic")[[
+        "positive", "neutral", "negative"
+    ]]
+
+    plot_df.plot(
+        kind="bar",
+        stacked=True,
+        figsize=(10, 5)
+    )
+
+    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic + Sentiment')
+    plt.xlabel("Topic")
+    plt.ylabel("Anzahl Dokumente")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+
+plot_topic_sentiment_from_summary(topic_sentiment_summary, "bow_lda", "de")
+
+
+# +
+def compare_methods_topic_distribution(methods, lang):
+    plt.figure(figsize=(10, 5))
+
+    for method_key, config in methods.items():
+        data = config["topics_by_lang"][lang]
+        doc_topic_matrix = data["doc_topic_matrix"]
+
+        if config["method_type"] == "lsa":
+            doc_topic_matrix = np.abs(doc_topic_matrix)
+
+        dominant_topics = doc_topic_matrix.argmax(axis=1)
+        counts = pd.Series(dominant_topics).value_counts().sort_index()
+
+        plt.plot(counts.index, counts.values, marker="o", label=config["title"])
+
+    plt.title(f"Methodenvergleich - Topic Verteilung ({lang})")
+    plt.xlabel("Topic")
+    plt.ylabel("Anzahl Dokumente")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+compare_methods_topic_distribution(methods, "de")
+compare_methods_topic_distribution(methods, "en")
+
+# +
+
+
+def plot_topic_heatmap(methods, method_key, lang):
+    data = methods[method_key]["topics_by_lang"][lang]
+    matrix = data["doc_topic_matrix"]
+
+    if methods[method_key]["method_type"] == "lsa":
+        matrix = np.abs(matrix)
+
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(matrix[:50], cmap="viridis")  # erste 50 Dokumente
+    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic Heatmap')
+    plt.xlabel("Topics")
+    plt.ylabel("Dokumente")
+    plt.tight_layout()
+    plt.show()
+
+plot_topic_heatmap(methods, "bow_lda", "de")
+plot_topic_heatmap(methods, "tfidf_lsa", "en")
+
+# +
+from gensim.models.coherencemodel import CoherenceModel
+from gensim.corpora import Dictionary
+import pandas as pd
+import numpy as np
+
+def evaluate_methods(methods, top_n_words=10):
+    results = []
+
+    for method_key, config in methods.items():
+        method_type = config["method_type"]
+        title = config["title"]
+
+        for lang in ["de", "en"]:
+            topic_data = config["topics_by_lang"][lang]
+            vector_data = config["vectors_by_lang"][lang]
+
+            model = topic_data["model"]
+            X = topic_data["matrix"]
+            features = topic_data["features"]
+            texts = vector_data["sentences"]
+
+            # --- Topics extrahieren ---
+            topics = []
+            for topic in model.components_:
+                top_idx = topic.argsort()[-top_n_words:][::-1]
+                topics.append([features[i] for i in top_idx])
+
+            # --- Coherence ---
+            dictionary = Dictionary(texts)
+            coherence_model = CoherenceModel(
+                topics=topics,
+                texts=texts,
+                dictionary=dictionary,
+                coherence="c_v"
+            )
+            coherence = coherence_model.get_coherence()
+
+            # --- LDA spezifische Metriken ---
+            if method_type == "lda":
+                perplexity = model.perplexity(X)
+                log_likelihood = model.score(X)
+            else:
+                perplexity = np.nan
+                log_likelihood = np.nan
+
+            results.append({
+                "method": title,
+                "lang": lang,
+                "coherence": coherence,
+                "perplexity": perplexity,
+                "log_likelihood": log_likelihood
+            })
+
+    return pd.DataFrame(results)
+
+eval_df = evaluate_methods(methods)
+display(eval_df.sort_values(by="coherence", ascending=False))
+# -
 
 
