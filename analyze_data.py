@@ -50,38 +50,6 @@ from src.preprocessing import *
 import ipywidgets as widgets
 
 
-# -
-
-# **Beschriebenes Vorgehen:**
-#
-# Bereinigung durch:
-# - Pandas
-# - NLTK
-# - SpaCy (besser für Deutsches Lemmatizing)
-#
-# -> Separat für Topic Modeling/ Semantik Analyse
-#
-#
-# Vektorisierung anhand BoW und TF-IDF + n-Gramme durch:
-# - sklearn
-#
-# -> Darstellung Unterschied zwischen BoW u TF-IDF
-# -> TF-IDF sprachsepariert, da sonst falsche stoppwörter
-#
-#
-# Themenidentifikation (LSA/LDA) durch:
-# - sklearn
-# - vaderSentiment
-# - GerVADER
-#
-# -> Ausarbeitung bester Ansatz:
-#
-# BoW + LDA
-# TF-IDF + LDA
-# -> TF-IDF + LSA
-#
-#
-
 # +
 def vectorize(Vectorizer, data_by_lang):
     params = {
@@ -113,65 +81,6 @@ def vectorize(Vectorizer, data_by_lang):
 
     return results
 
-def assign_topics_with_keywords(model_result, method, n_top_words=10):
-    """
-    Einheitliche Topic-Zuordnung für LDA und LSA inkl. Top-Keywords.
-
-    Erwartet in model_result:
-        - "doc_topic_matrix"
-        - "documents"
-        - "model"
-        - "features"
-
-    Parameter:
-        method (str): 'lda' oder 'lsa'
-        n_top_words (int): Anzahl Top-Wörter pro Topic
-
-    Rückgabe:
-        DataFrame mit:
-        - document
-        - dominant_topic
-        - topic_strength
-        - topic_keywords
-    """
-
-    doc_topic_matrix = model_result["doc_topic_matrix"]
-
-    # --- Topic-Zuordnung ---
-    if method == "lda":
-        dominant_topics = doc_topic_matrix.argmax(axis=1)
-        topic_strengths = doc_topic_matrix.max(axis=1)
-
-    elif method == "lsa":
-        dominant_topics = np.abs(doc_topic_matrix).argmax(axis=1)
-        topic_strengths = np.abs(doc_topic_matrix).max(axis=1)
-
-    else:
-        raise ValueError("method muss 'lda' oder 'lsa' sein")
-
-    # --- Keywords pro Topic ---
-    model = model_result["model"]
-    features = model_result["features"]
-
-    topic_keywords = {
-        i + 1: ", ".join(
-            features[j]
-            for j in topic.argsort()[-n_top_words:][::-1]
-        )
-        for i, topic in enumerate(model.components_)
-    }
-
-    # --- DataFrame ---
-    df = pd.DataFrame({
-        "document": model_result["documents"],
-        "dominant_topic": dominant_topics + 1,
-        "topic_strength": topic_strengths
-    })
-
-    # Keywords mappen
-    df["topic_keywords"] = df["dominant_topic"].map(topic_keywords)
-
-    return df
 
 def build_sentiment_df(model_result, lang, pos=0.05, neg=-0.05):
     """
@@ -342,6 +251,7 @@ while True:
     
     else:
         print("\nUngültige Eingabe. Bitte 1 oder 2 wählen.")
+		
 
 # +
 ############
@@ -378,11 +288,11 @@ methods = {
         "vectors_by_lang": vectors_topic["bow_by_lang"],
         "method_type": "lda",
     },
-    "tfidf_lda": {
-        "title": "LDA TF-IDF",
-        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
-        "method_type": "lda",
-    },
+#    "tfidf_lda": {
+#        "title": "LDA TF-IDF",
+#        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
+#        "method_type": "lda",
+#    },
     "tfidf_lsa": {
         "title": "LSA TF-IDF",
         "vectors_by_lang": vectors_topic["tfidf_by_lang"],
@@ -407,7 +317,8 @@ for method_key, config in methods.items():
                 random_state=42,
                 learning_method="online",
                 max_iter=max_iter,
-                evaluate_every=-1
+                evaluate_every=-1,
+                batch_size = batch_size
             )
 
             # Manuelles Online-Training über mehrere Iterationen und Batches
@@ -441,44 +352,50 @@ for method_key, config in methods.items():
 
 
 # +
-def get_structure(d, max_depth=3, current_depth=0):
-    if current_depth >= max_depth:
-        return "..."
-
-    if isinstance(d, dict):
-        return {
-            k: get_structure(v, max_depth, current_depth + 1)
-            for k, v in d.items()
-        }
-
-    return type(d).__name__
-
-
-pprint(get_structure(next(iter(methods.values())), max_depth=3))
-
-# +
 ############
 # Topic + Sentiment Analyse
 ############
 
-
 # 1. Topic-Zuordnung je Modell
-doc_topics = {
-    method: {
-        lang: assign_topics_with_keywords(
-            result,
-            method=config["method_type"]
-        )
-        for lang, result in config["topics_by_lang"].items()
-    }
-    for method, config in methods.items()
-}
+doc_topics = {}
+
+for method_key, config in methods.items():
+    doc_topics[method_key] = {}
+
+    for lang, result in config["topics_by_lang"].items():
+
+        doc_topic_matrix = result["doc_topic_matrix"]
+        documents = result["documents"]
+        method_type = config["method_type"]
+
+        # --------------------
+        # Dominantes Topic je Dokument
+        # --------------------
+        if method_type == "lda":
+            dominant_topics = doc_topic_matrix.argmax(axis=1)
+            topic_strengths = doc_topic_matrix.max(axis=1)
+
+        elif method_type == "lsa":
+            dominant_topics = np.abs(doc_topic_matrix).argmax(axis=1)
+            topic_strengths = np.abs(doc_topic_matrix).max(axis=1)
+
+        # --------------------
+        # DataFrame je Dokument
+        # --------------------
+        df_topics = pd.DataFrame({
+            "document": documents,
+            "dominant_topic": dominant_topics + 1,
+            "topic_strength": topic_strengths
+        })
+
+        doc_topics[method_key][lang] = df_topics
+
 
 # 2. Sentiment je Sprache berechnen
-# Sentiment basiert auf den Sentiment-Dokumenten, nicht auf BoW/TF-IDF
+# Sentiment wird nur anhand TFIDF Vektor berechnet
 sentiments = {
     lang: build_sentiment_df(result, lang=lang)
-    for lang, result in vectors_sentiment["tfidf_by_lang"].items()
+    for lang, result in vectors_topic["tfidf_by_lang"].items()
 }
 
 # 3. Topic-Zuordnung + Sentiment verbinden
@@ -501,11 +418,11 @@ topic_sentiment_summary = {
             df.groupby("dominant_topic")
             .agg(
                 documents=("document", "count"),
+                avg_topic_strength=("topic_strength", "mean"),
                 avg_sentiment=("sentiment_score", "mean"),
                 positive=("sentiment_label", lambda x: (x == "positive").sum()),
                 neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
                 negative=("sentiment_label", lambda x: (x == "negative").sum())
-                #topic_keywords=("topic_keywords", "first")
             )
             .reset_index()
         )
@@ -514,23 +431,23 @@ topic_sentiment_summary = {
     for method, lang_results in doc_topics_sentiment.items()
 }
 
-
-# +
-# 5. Ausgabe: BoW/LDA Topic + Sentiment
-
+# 5. Ausgabe: Topic + Sentiment je Modell und Sprache
 for lang in ["de", "en"]:
+
     if lang == "de":
         pos_threshold, neg_threshold = 0.5, -0.5
     elif lang == "en":
         pos_threshold, neg_threshold = 0.1, -0.1
 
     for method_key, config in methods.items():
-        display(style_topic_sentiment(
-            topic_sentiment_summary[method_key][lang],
-            f"{config["title"]} ({lang}) - Topic & Sentiment Matrix",
-            pos_threshold=pos_threshold,
-            neg_threshold=neg_threshold
-        ))
+        display(
+            style_topic_sentiment(
+                topic_sentiment_summary[method_key][lang],
+                f"{config['title']} ({lang}) - Topic & Sentiment Matrix",
+                pos_threshold=pos_threshold,
+                neg_threshold=neg_threshold
+            )
+        )
 
 # +
 # 6. Ausgabe: Topics per Method/ Language
@@ -539,7 +456,7 @@ topic_table_en = build_topic_comparison_tables(doc_topics,methods,"en")
 
 #display(style_topic_comparison(topic_table_de, "Topic Vergleich - DE"))
 #print()
-#display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
+display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
 
 
 # +
@@ -563,7 +480,7 @@ def plot_top_words_from_methods(methods, method_key, lang, topic_id, n_words=10)
     plt.show()
 
 plot_top_words_from_methods(methods, "bow_lda", "de", topic_id=0)
-plot_top_words_from_methods(methods, "tfidf_lsa", "en", topic_id=2)
+plot_top_words_from_methods(methods, "tfidf_lsa", "de", topic_id=0)
 
 
 # +
@@ -644,86 +561,6 @@ def compare_methods_topic_distribution(methods, lang):
 
 compare_methods_topic_distribution(methods, "de")
 compare_methods_topic_distribution(methods, "en")
-
-# +
-
-
-def plot_topic_heatmap(methods, method_key, lang):
-    data = methods[method_key]["topics_by_lang"][lang]
-    matrix = data["doc_topic_matrix"]
-
-    if methods[method_key]["method_type"] == "lsa":
-        matrix = np.abs(matrix)
-
-    plt.figure(figsize=(10, 6))
-    sns.heatmap(matrix[:50], cmap="viridis")  # erste 50 Dokumente
-    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic Heatmap')
-    plt.xlabel("Topics")
-    plt.ylabel("Dokumente")
-    plt.tight_layout()
-    plt.show()
-
-plot_topic_heatmap(methods, "bow_lda", "de")
-plot_topic_heatmap(methods, "tfidf_lsa", "en")
-
-# +
-from gensim.models.coherencemodel import CoherenceModel
-from gensim.corpora import Dictionary
-import pandas as pd
-import numpy as np
-
-def evaluate_methods(methods, top_n_words=10):
-    results = []
-
-    for method_key, config in methods.items():
-        method_type = config["method_type"]
-        title = config["title"]
-
-        for lang in ["de", "en"]:
-            topic_data = config["topics_by_lang"][lang]
-            vector_data = config["vectors_by_lang"][lang]
-
-            model = topic_data["model"]
-            X = topic_data["matrix"]
-            features = topic_data["features"]
-            texts = vector_data["sentences"]
-
-            # --- Topics extrahieren ---
-            topics = []
-            for topic in model.components_:
-                top_idx = topic.argsort()[-top_n_words:][::-1]
-                topics.append([features[i] for i in top_idx])
-
-            # --- Coherence ---
-            dictionary = Dictionary(texts)
-            coherence_model = CoherenceModel(
-                topics=topics,
-                texts=texts,
-                dictionary=dictionary,
-                coherence="c_v"
-            )
-            coherence = coherence_model.get_coherence()
-
-            # --- LDA spezifische Metriken ---
-            if method_type == "lda":
-                perplexity = model.perplexity(X)
-                log_likelihood = model.score(X)
-            else:
-                perplexity = np.nan
-                log_likelihood = np.nan
-
-            results.append({
-                "method": title,
-                "lang": lang,
-                "coherence": coherence,
-                "perplexity": perplexity,
-                "log_likelihood": log_likelihood
-            })
-
-    return pd.DataFrame(results)
-
-eval_df = evaluate_methods(methods)
-display(eval_df.sort_values(by="coherence", ascending=False))
 # -
 
 
