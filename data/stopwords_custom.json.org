@@ -1,0 +1,53 @@
+{
+  "de_common": [
+    "august","information","art","aktuell","zahl","genannt","frage","antwort","fall",
+    "stelle","rahmen","bitten","insbesondere","erachten","tatsächlich",
+    "bayerisch","bayern","baydsg","bayuig","vig",
+    "lebensmittelbetriebe","routinekontrolle","rüb","avv","lfgb",
+
+    "bitte","einschließlich","datum","folgend","liegen","antrag","behörde","anfrage",
+    "projekt","dokument","erfolgen","zuständig","zuständigkeitsbereich","falls",
+    "auskunft","entsprechend","befinden","angabe","betreffen",
+    "elektronisch","öffentlich","soweit","überprüfen","registriert",
+    "aktenauskunft","gesetz","umweltinformationsgesetz",
+
+    "letzter","form","begründung","interesse",
+    "sämtlicher","anzahl","gemeinde","handeln",
+    "geplant","sinn","monat","freundlich",
+    "senden","mitteilen","grüße","häufig",
+    "stellen","höhe","angeben",
+
+    "unverzüglich","ausdrücklich","vorab","bewerten","übersicht","jährlich","mühe",
+    "danken","verweisen","zugänglich",
+
+    "satz","empfangsbestätigung","widersprechen","weiterzuleiten",
+    "unterrichten","weitergabe","aufwand","gebührenpflichtig",
+    "herr","geehrt","dame","gemäß","beantragen","gmbh",
+    "vorhanden","vorliegen","zugang","angefragt",
+    "gewähren","fragdenstaat","verfahren","gesetzlich",
+    "grund","bezug","mitteilung",
+
+    "einfach","somit","spätestens","zusätzlich","sofern","aufgrund"
+  ],
+
+  "de_topic_only": [],
+  "de_sentiment_only": [],
+
+  "en_common": [
+    "want","look","know","think","people","day","find","tell","ask","take","work",
+    "place","food","get","try","time","come","go",
+    "need","way","say","staff","experience",
+    "lot","feel","thing","visit","pretty",
+    "long","area","minute","new",
+    "sure","right","review","hour","leave"
+  ],
+
+  "en_topic_only": [
+    "nice","well","delicious","friendly","definitely",
+    "good","great","like","love","little",
+    "bad","amazing",
+    "recommend","enjoy"
+  ],
+
+  "en_sentiment_only": []
+}

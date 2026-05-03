@@ -15,8 +15,9 @@
 
 # +
 import re
-from tqdm import tqdm #Progress Indication
 from pprint import pprint,pformat #Saubere JSON darstellung
+import os
+import json
 
 import numpy as np 
 import nltk
@@ -44,6 +45,9 @@ import seaborn as sns
 
 from src.styles import *
 from src.visualization import *
+from src.preprocessing import *
+
+import ipywidgets as widgets
 
 
 # -
@@ -79,63 +83,6 @@ from src.visualization import *
 #
 
 # +
-def batch_lemmatizer(texts, nlp, stopw, desc, n_process):
-    sentences = []
-
-    reviews = nlp.pipe(texts, batch_size=200, n_process=n_process)
-
-    for review in tqdm(reviews, total=len(texts), desc=desc):
-        lemmas = [
-            token.lemma_.lower()
-            for token in review
-            if token.is_alpha
-            and len(token) > 2
-            and not token.is_stop
-            and token.lemma_.lower() not in stopw
-        ]
-
-        if lemmas:
-            sentences.append(lemmas)
-
-    return sentences
-            
-def clean_and_tokenize(df, stopw_de, stopw_en, n_process):
-    stopw_de = set(stopw_de)
-    stopw_en = set(stopw_en)
-
-    nlp_de = spacy.load("de_core_news_sm", disable=["parser", "ner"])
-    nlp_en = spacy.load("en_core_web_sm", disable=["parser", "ner"])
-
-    df_de = df[df["language"] == "de"]["review"].fillna("").astype(str)
-    df_en = df[df["language"] == "en"]["review"].fillna("").astype(str)
-
-    result = {}
-
-    for lang, texts, nlp, stopw, desc in [
-        ("de", df_de, nlp_de, stopw_de, "Deutsch verarbeiten"),
-        ("en", df_en, nlp_en, stopw_en, "Englisch verarbeiten"),
-    ]:
-        sentences = batch_lemmatizer(
-            texts=texts,
-            nlp=nlp,
-            stopw=stopw,
-            desc=desc,
-            n_process=n_process
-        )
-
-        documents = [" ".join(sentence) for sentence in sentences]
-        vocabulary = sorted(set(word for sent in sentences for word in sent))
-        index = {word: i for i, word in enumerate(vocabulary)}
-
-        result[lang] = {
-            "sentences": sentences,
-            "documents": documents,
-            "vocabulary": vocabulary,
-            "index": index
-        }
-
-    return result
-
 def vectorize(Vectorizer, data_by_lang):
     params = {
         "ngram_range": (1, 2),
@@ -278,28 +225,18 @@ def build_sentiment_df(model_result, lang, pos=0.05, neg=-0.05):
 
 # +
 ##########
-# Variable Definition
+# Data Import
 ##########
+
+# Variable Definition
 local_dir = "data"
 path_reviews = f"{local_dir}/combined_reviews.csv"
+stopword_path = "data/stopwords_custom.json"
 
-# Manuelle Stopwörter (werden iterativ ergänzt) 
-stopw_topic_manual_de, stopw_sentiment_manual_de = [],[]
-stopw_topic_manual_en, stopw_sentiment_manual_en = [],[]
+top_n = 15
+n_process = 1
 
-# Stoppwörter aus NTLK
-stopw_de = stopwords.words("german")
-stopw_en = stopwords.words("english") 
-
-# Zusammengesetzte Stopwörter aus manuell und NTLK
-stopw_topic_de = stopw_de + stopw_topic_manual_de
-stopw_topic_en = stopw_en + stopw_topic_manual_en
-stopw_sentiment_de = stopw_de + stopw_sentiment_manual_de
-stopw_sentiment_en = stopw_en + stopw_sentiment_manual_en
-
-############
 # Import data to pandas dataframe
-############
 df_reviews = pd.read_csv(path_reviews)
 
 df_reviews["language"] = df_reviews["origin"].map({
@@ -307,140 +244,104 @@ df_reviews["language"] = df_reviews["origin"].map({
     "YELP": "en",
 })
 
-############
-# Prepare Data
-############
+##########
+# Stopword Definition
+##########
 
-# --- Stopwort-Definitionen ---
-stopword_updates = {
+# Basis-Dictionary
+dict_stopw_default = {
+    "iter_0": {
+        "de_nltk_common": stopwords.words("german"),
+        "en_nltk_common": stopwords.words("english")
+    },
     "iter_1": {
-        "de_common": [
-            "august","information","art","aktuell","zahl","genannt","frage","antwort","fall",
-            "stelle","rahmen","bitten","insbesondere","erachten","tatsächlich",
-            "bayerisch","bayern","baydsg","bayuig","vig", # Verwaltungsbegriffe
-            "lebensmittelbetriebe","routinekontrolle","rüb","avv","lfgb" # Standardanfragen
-        ],
-        "en_common": [
-            "want","look","know","think","people","day","find","tell","ask","take","work"
-        ],
-        "en_topic_only": [
-            "nice","well","delicious","friendly","definitely"
-        ]
-    },
-
-    "iter_2": {
-        "de_common": [
-            "bitte","einschließlich","datum","folgend","liegen","antrag","behörde","anfrage",
-            "projekt","dokument","erfolgen","zuständig","zuständigkeitsbereich","falls",
-            "auskunft","entsprechend","befinden","angabe","betreffen",
-            "elektronisch","öffentlich","soweit","überprüfen","registriert", # Juristisch
-            "aktenauskunft","gesetz","umweltinformationsgesetz" # Juristisch
-        ],
-        "en_common": [
-            "place","food","get","try","time","come","go",
-            "need","way","say","staff","experience"
-        ],
-        "en_topic_only": [
-            "good","great","like","love","little"
-        ]
-    },
-
-    "iter_3": { 
-        "de_common": [ # Hauptsächlich Verwaltungsfloskeln 
-            "letzter","form","begründung","interesse",
-            "sämtlicher","anzahl","gemeinde","handeln",
-            "geplant","sinn","monat", "freundlich",
-            "senden","mitteilen","grüße","häufig"
-            "stellen","höhe","angeben"
-        ],
-        "en_common": [ 
-            "lot","feel","thing","visit", "pretty",
-            "long","area","minute","new"
-        ],
-        "en_topic_only": ["bad","amazing"]
-    },
-    
-    "iter_4": { 
-        "de_common": [ 
-            "unverzüglich", "ausdrücklich", "häufig", 
-            "vorab", "bewerten", "übersicht", "jährlich", "mühe",
-            "danken", "verweisen", "zugänglich"
-        ],
-        "en_common": [ 
-            "sure", "right", "review", "hour","leave"
-        ],
-        "en_topic_only": ["recommend", "enjoy"]
-    },
-    
-    "iter_5": { # Nach BoW + LDA Topic Modeling
-        "de_common": [ 
-            "satz", "empfangsbestätigung", "widersprechen", "weiterzuleiten",
-            "unterrichten", "weitergabe", "aufwand", "gebührenpflichtig",
-            "herr", "geehrt", "dame", "gemäß", "beantragen","gmbh",
-            "vorhanden", "vorliegen", "zugang", "angefragt",
-            "gewähren", "fragdenstaat", "verfahren", "gesetzlich",
-            "grund", "bezug", "mitteilung"
-        ],
-        "en_common": [],
-        "en_topic_only": []
-    },
-
-    "iter_6": { # Nach 2tem BoW + LDA Topic Modeling Durchlauf
-        "de_common": [ 
-            "einfach", "somit", "spätestens", "stellen",
-            "zusätzlich", "sofern", "aufgrund"
-        ],
-        "en_common": [],
-        "en_topic_only": []
+        "de_custom_common": [],
+        "de_custom_topic_only": [],
+        "en_custom_common": [],
+        "en_custom_topic_only": []
     }
 }
 
-for iteration in stopword_updates.values():
 
-    # Deutsch (immer beide)
-    stopw_topic_de += iteration["de_common"]
-    stopw_sentiment_de += iteration["de_common"]
+while True:
+    # Stopwörter JSON laden oder neu erstellen
+    if os.path.exists(stopword_path) and os.path.getsize(stopword_path) > 0:
+        print("Stopwort-Datei gefunden -> wird eingelesen")
+        dict_stopw = load_stopw_from_json(stopword_path)
 
-    # Englisch (gemeinsam)
-    stopw_topic_en += iteration["en_common"]
-    stopw_sentiment_en += iteration["en_common"]
+        if "iter_0" not in dict_stopw:
+            dict_stopw["iter_0"] = dict_stopw_default["iter_0"]
+            write_stopw_to_json(dict_stopw, stopword_path)
 
-    # Englisch (nur Topic)
-    stopw_topic_en += iteration["en_topic_only"]
+    else:
+        print("Stopwort-Datei fehlt oder ist leer -> wird erstellt")
+        dict_stopw = dict_stopw_default
+        write_stopw_to_json(dict_stopw, stopword_path)
 
-# ggf. Duplikate entfernen
-stopw_topic_de = sorted(set(stopw_topic_de))
-stopw_sentiment_de = sorted(set(stopw_sentiment_de))
-stopw_topic_en = sorted(set(stopw_topic_en))
-stopw_sentiment_en = sorted(set(stopw_sentiment_en))
+    # Stopwörter zusammenführen
+    stopwords_all = build_stopword_lists_from_iterations(dict_stopw)
 
+    stopw_topic_de = stopwords_all["topic_de"]
+    stopw_sentiment_de = stopwords_all["sentiment_de"]
 
-# Daten für Topic Modeling
-print("Cleaning Data - Topic Modeling")
-data_topic = clean_and_tokenize(
-    df_reviews,
-    stopw_de=stopw_topic_de,
-    stopw_en=stopw_topic_en,
-    n_process=2 # ggf. Anpassen für schnellere Verarbeitung
-)
+    stopw_topic_en = stopwords_all["topic_en"]
+    stopw_sentiment_en = stopwords_all["sentiment_en"]
 
-# Daten für Sentimentanalyse
-print("\nCleaning Data - Sentiment Analysis")
-data_sentiment = clean_and_tokenize(
-    df_reviews,
-    stopw_de=stopw_sentiment_de,
-    stopw_en=stopw_sentiment_en,
-    n_process=2
-)
+    # Cleaning Topic
+    print("\nCleaning Data - Topic Modeling")
+    data_topic = clean_and_tokenize(
+        df_reviews,
+        stopw_de=stopw_topic_de,
+        stopw_en=stopw_topic_en,
+        n_process=n_process
+    )
 
+    # Cleaning Sentiment
+    print("\nCleaning Data - Sentiment Analysis")
+    data_sentiment = clean_and_tokenize(
+        df_reviews,
+        stopw_de=stopw_sentiment_de,
+        stopw_en=stopw_sentiment_en,
+        n_process=n_process
+    )
 
+    # Vergleichstabelle anzeigen
+    compare_top_tokens_table = compare_top_tokens(
+        data_topic,
+        data_sentiment,
+        top_n
+    )
+    print()
+    display(
+        style_compare_top_tokens(
+            compare_top_tokens_table,
+            caption=f"Vergleich Top {top_n} Token (de/en)"
+        )
+    )
 
-# -
-
-
-top_n = 15
-compare_top_tokens_table = compare_top_tokens(data_topic, data_sentiment, top_n)
-display(style_compare_top_tokens(compare_top_tokens_table, caption=f"Top {top_n} Tokens: Topic vs Sentiment (de/en)"))
+    current_iter = get_current_iteration_key(dict_stopw)
+    
+    print(
+        f"\nBitte Top Token prüfen und ggf. unter '{current_iter}' in {stopword_path} ergänzen."
+    )
+    print("1 = JSON ergänzt, nächste Iteration starten")
+    print("2 = fertig, weiter mit Topic Modeling")
+    
+    choice = input("Auswahl: ").strip()
+    
+    if choice == "1":
+        # JSON neu laden (mit deinen Ergänzungen)
+        dict_stopw = load_stopw_from_json(stopword_path)
+    
+        # nächste Iteration vorbereiten
+        dict_stopw = add_iter_to_json(stopword_path)
+    
+    elif choice == "2":
+        print("\nFinale Stopwörter übernommen. Weiter mit Topic Modeling.")
+        break
+    
+    else:
+        print("\nUngültige Eingabe. Bitte 1 oder 2 wählen.")
 
 # +
 ############

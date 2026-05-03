@@ -1,6 +1,11 @@
 # Excludes because of data protection
-data/*.json
-data/*.csv
+data/fragdenstaat_messages_raw.json
+data/yelp_academic_dataset_review.json
+data/combined_reviews.csv
+GerVADER/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Cache Files
+src/__pycache__/*
