@@ -157,11 +157,22 @@ df_reviews["language"] = df_reviews["origin"].map({
 # Stopword Definition
 ##########
 
+# Sentiment Stoppwörter import
+sia_en = SentimentIntensityAnalyzer()
+de_thres = 1.5
+en_thres = 1.5
+
+vader_words_en = load_vader_words(sia_en, en_thres)
+gervader_words_de = load_gervader_words("GerVADER/GERVaderLexicon.txt", de_thres)
+
 # Basis-Dictionary
 dict_stopw_default = {
     "iter_0": {
         "de_nltk_common": stopwords.words("german"),
-        "en_nltk_common": stopwords.words("english")
+        "de_vader_topic_only":gervader_words_de,
+        "en_nltk_common": stopwords.words("english"),
+        "en_vader_topic_only":vader_words_en,
+        
     },
     "iter_1": {
         "de_custom_common": [],
@@ -171,6 +182,7 @@ dict_stopw_default = {
     }
 }
 
+# -
 
 while True:
     # Stopwörter JSON laden oder neu erstellen
@@ -243,6 +255,7 @@ while True:
         dict_stopw = load_stopw_from_json(stopword_path)
     
         # nächste Iteration vorbereiten
+        write_stopw_to_json(dict_stopw, stopword_path)
         dict_stopw = add_iter_to_json(stopword_path)
     
     elif choice == "2":
