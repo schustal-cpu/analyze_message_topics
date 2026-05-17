@@ -14,123 +14,27 @@
 # ---
 
 # +
-import re
-from pprint import pprint,pformat #Saubere JSON darstellung
 import os
-import json
-
-import numpy as np 
-import nltk
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-from collections import defaultdict
-from collections import Counter
-
-import spacy # Lemmatizer
-
+import numpy as np
 import pandas as pd
-pd.set_option('display.max_rows', None)
-pd.set_option('display.max_columns', None)
+import scipy
+
+from IPython.display import display
+from tqdm.auto import tqdm
+
+from nltk.corpus import stopwords
 
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from GerVADER.vaderSentimentGER import SentimentIntensityAnalyzer as GerSentimentIntensityAnalyzer
 
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mtick
-import seaborn as sns
 
 from src.styles import *
 from src.visualization import *
 from src.preprocessing import *
-
-import ipywidgets as widgets
-
-
-# +
-def vectorize(Vectorizer, data_by_lang):
-    params = {
-        "ngram_range": (1, 2),
-        "min_df": 3,
-        "max_df": 0.8,
-        "dtype": np.float32,
-    }
-
-    results = {}
-
-    for lang, data in data_by_lang.items():
-        documents = data["documents"]
-
-        vectorizer = Vectorizer(**params)
-        matrix = vectorizer.fit_transform(documents)
-
-        results[lang] = {
-            "matrix": matrix,
-            "vectorizer": vectorizer,
-            "feature_names": vectorizer.get_feature_names_out(),
-            "documents": documents,
-            "sentences": data["sentences"],
-            "vocabulary": data["vocabulary"],
-            "index": data["index"]
-        }
-
-        print(f"{lang}: {matrix.shape[0]} Dokumente, {matrix.shape[1]} Features")
-
-    return results
-
-
-def build_sentiment_df(model_result, lang, pos=0.05, neg=-0.05):
-    """
-    Berechnet Sentiment Score + Label pro Dokument.
-
-    Parameter:
-        model_result: enthält 'documents'
-        lang: 'de' oder 'en'
-        pos/neg: Schwellenwerte für Klassifikation
-
-    Rückgabe:
-        DataFrame mit:
-        - document
-        - sentiment_score
-        - sentiment_label
-    """
-
-    analyzer_en = SentimentIntensityAnalyzer()
-    analyzer_de = GerSentimentIntensityAnalyzer()
-    
-    documents = model_result["documents"]
-
-    # richtigen Analyzer wählen
-    if lang == "en":
-        analyzer = analyzer_en
-    elif lang == "de":
-        analyzer = analyzer_de
-    else:
-        raise ValueError("Unsupported language")
-
-    # Scores berechnen
-    scores = [
-        analyzer.polarity_scores(doc)["compound"]
-        for doc in documents
-    ]
-
-    # DataFrame erstellen
-    df = pd.DataFrame({
-        "document": documents,
-        "sentiment_score": scores
-    })
-
-    # Label direkt inline
-    df["sentiment_label"] = df["sentiment_score"].apply(
-        lambda s: "positive" if s >= pos else "negative" if s <= neg else "neutral"
-    )
-
-    return df
-
-
+from src.training import *
 
 # +
 ##########
@@ -142,9 +46,6 @@ local_dir = "data"
 path_reviews = f"{local_dir}/combined_reviews.csv"
 stopword_path = "data/stopwords_custom.json"
 
-top_n = 15
-n_process = 1
-
 # Import data to pandas dataframe
 df_reviews = pd.read_csv(path_reviews)
 
@@ -153,19 +54,23 @@ df_reviews["language"] = df_reviews["origin"].map({
     "YELP": "en",
 })
 
+# Remove duplicate Requests
+df_reviews = remove_duplicate_texts(df_reviews, text_col="review")
+
+
 ##########
 # Stopword Definition
 ##########
 
-# Sentiment Stoppwörter import
+# Import Sentiment Stopwords based on threshold
 sia_en = SentimentIntensityAnalyzer()
-de_thres = 1.5
+de_thres = 2
 en_thres = 1.5
 
 vader_words_en = load_vader_words(sia_en, en_thres)
 gervader_words_de = load_gervader_words("GerVADER/GERVaderLexicon.txt", de_thres)
 
-# Basis-Dictionary
+# Build Basis-Dictionary
 dict_stopw_default = {
     "iter_0": {
         "de_nltk_common": stopwords.words("german"),
@@ -182,7 +87,14 @@ dict_stopw_default = {
     }
 }
 
-# -
+
+# +
+##########
+# Data PreProcessing
+##########
+
+top_n = 30       # Anzahl anzuzeigender TopWörter
+n_process = 1    # Anzahl paralleler Prozesse, Performace-Tunin
 
 while True:
     # Stopwörter JSON laden oder neu erstellen
@@ -202,29 +114,15 @@ while True:
     # Stopwörter zusammenführen
     stopwords_all = build_stopword_lists_from_iterations(dict_stopw)
 
-    stopw_topic_de = stopwords_all["topic_de"]
-    stopw_sentiment_de = stopwords_all["sentiment_de"]
+    stopw_topic_de, stopw_sent_de = stopwords_all["topic_de"], stopwords_all["sentiment_de"]
+    stopw_topic_en, stopw_sent_en = stopwords_all["topic_en"], stopwords_all["sentiment_en"]
 
-    stopw_topic_en = stopwords_all["topic_en"]
-    stopw_sentiment_en = stopwords_all["sentiment_en"]
-
-    # Cleaning Topic
+    # Cleaning Topic/ Sentiment Data
     print("\nCleaning Data - Topic Modeling")
-    data_topic = clean_and_tokenize(
-        df_reviews,
-        stopw_de=stopw_topic_de,
-        stopw_en=stopw_topic_en,
-        n_process=n_process
-    )
+    data_topic = clean_and_tokenize(df_reviews,stopw_de=stopw_topic_de,stopw_en=stopw_topic_en,n_process=n_process)
 
-    # Cleaning Sentiment
     print("\nCleaning Data - Sentiment Analysis")
-    data_sentiment = clean_and_tokenize(
-        df_reviews,
-        stopw_de=stopw_sentiment_de,
-        stopw_en=stopw_sentiment_en,
-        n_process=n_process
-    )
+    data_sentiment = clean_and_tokenize(df_reviews,stopw_de=stopw_sent_de,stopw_en=stopw_sent_en,n_process=n_process)
 
     # Vergleichstabelle anzeigen
     compare_top_tokens_table = compare_top_tokens(
@@ -255,8 +153,7 @@ while True:
         dict_stopw = load_stopw_from_json(stopword_path)
     
         # nächste Iteration vorbereiten
-        write_stopw_to_json(dict_stopw, stopword_path)
-        dict_stopw = add_iter_to_json(stopword_path)
+        add_iter_to_json(dict_stopw, stopword_path)
     
     elif choice == "2":
         print("\nFinale Stopwörter übernommen. Weiter mit Topic Modeling.")
@@ -264,14 +161,14 @@ while True:
     
     else:
         print("\nUngültige Eingabe. Bitte 1 oder 2 wählen.")
-		
+
 
 # +
 ############
 # Create Vectors with BoW & TF-IDF
-# Separate Pipelines: Topic Modeling vs. Sentiment
 ############
 
+# Separate Pipelines: Topic Modeling vs. Sentiment
 print("Creating Vectors - Topic Modeling")
 vectors_topic = {}
 vectors_topic["bow_by_lang"] = vectorize(CountVectorizer, data_topic)
@@ -285,84 +182,377 @@ vectors_sentiment["tfidf_by_lang"] = vectorize(TfidfVectorizer, data_sentiment)
 
 # +
 ############
-# Topic Modeling
+# LDA/BoW - Model Tuning (en|de)
 ############
 
-# Zentrale Parameter für alle Topic-Modelle
-n_topics = 10          # Anzahl der Topics
-n_top_words = 15       # Anzahl der Top-Wörter pro Topic
-max_iter = 20          # Anzahl der Trainingsdurchläufe für LDA
-batch_size = 500       # Batch-Größe für das Online-Learning bei LDA
+lda_tuning_results_by_lang = {}
 
-# Zentrale Konfiguration aller Topic-Modelle
-methods = {
-    "bow_lda": {
-        "title": "LDA BoW",
-        "vectors_by_lang": vectors_topic["bow_by_lang"],
-        "method_type": "lda",
+for lang, data in vectors_topic["bow_by_lang"].items():
+    lda_tuning_results_by_lang[lang] = tune_lda_models(
+        data=data,
+        topic_grid=[15, 20],                 # Anzahl Topics (zu klein = zu grob, zu groß = redundant)
+        alpha_grid=[0.01, 0.05, 0.1, None],  # Dokument→Topic-Verteilung (klein = wenige dominante Topics, groß = mehrere Topics)
+        eta_grid=[0.01, 0.05, 0.1, None],    # Topic→Wort-Verteilung (klein = wenige dominante Wörter, groß = breitere Topics)
+        max_iter=10,                         # Trainingsdurchläufe (mehr = bessere Konvergenz, langsamer)
+        learning_method="batch",             # batch = stabil, online = schneller bei großen Daten
+        lang=lang                            # nur für Logging/Progress
+    )
+
+# +
+############
+# LDA/BoW - Tuning Validation (en|de)
+############
+
+lda_tuning_config = [
+    {"col": "coherence", "weight": 0.5, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
+    {"col": "perplexity", "weight": 0.2, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
+    {"col": "largest_topic_share", "weight": 0.3, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+]
+
+lda_tuning_interpreted_by_lang = {}
+
+for lang, tuning_df_lang in lda_tuning_results_by_lang.items():
+
+    tuning_interpreted = evaluate_and_score_tuning_generic(
+        tuning_df=tuning_df_lang,
+        score_metrics=lda_tuning_config
+    )
+
+    lda_tuning_interpreted_by_lang[lang] = tuning_interpreted
+
+    print(f"\n=== LDA/BoW Tuning ({lang}) ===")
+
+    display(
+        style_tuning_eval_generic(
+            tuning_interpreted.head(15),  # ← hier begrenzen
+            style_metrics=lda_tuning_config,
+            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix"]
+        )
+    )
+
+# +
+############
+# LSA/TF-IDF - Model Tuning (en|de)
+############
+
+lsa_tuning_results_by_lang = {}
+
+for lang, data in vectors_topic["tfidf_by_lang"].items():
+    lsa_tuning_results_by_lang[lang] = tune_lsa_models(
+        data=data,
+        topic_grid=[15, 20, 25, 30],   # Anzahl Topics / Dimensionen (mehr = feinere Struktur, aber schwerer interpretierbar)
+        n_iter_grid=[5, 10, 20],       # Iterationen für SVD (mehr = stabilere Komponenten, aber langsamer)
+        lang=lang                      # nur für Logging/Progress
+    )
+
+# +
+############
+# LSA/TF-IDF - Tuning Validation (en|de)
+############
+
+lsa_tuning_config = [
+    {"col": "coherence", "weight": 0.5, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
+    {"col": "explained_variance", "weight": 0.2, "higher_is_better": True, "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
+    {"col": "largest_topic_share", "weight": 0.3, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+]
+
+lsa_tuning_interpreted_by_lang = {}
+
+for lang, tuning_df_lang in lsa_tuning_results_by_lang.items():
+
+    tuning_interpreted = evaluate_and_score_tuning_generic(
+        tuning_df=tuning_df_lang,
+        score_metrics=lsa_tuning_config
+    )
+
+    lsa_tuning_interpreted_by_lang[lang] = tuning_interpreted
+
+    print(f"\n=== LSA/TF-IDF Tuning ({lang}) ===")
+
+    display(
+        style_tuning_eval_generic(
+            tuning_interpreted,
+            style_metrics=lsa_tuning_config,
+            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix"]
+        )
+    )
+
+
+# +
+def plot_topic_terms(row, topic_id, weight_col="weight_pct", top_n=10):
+    topic_key = f"Topic {topic_id}"
+    terms = row["topic_terms"][topic_key][:top_n]
+
+    words = [item["word"] for item in terms][::-1]
+    values = [item[weight_col] for item in terms][::-1]
+
+    plt.figure(figsize=(8, 4))
+    plt.barh(words, values)
+    plt.title(f"{topic_key} – Top Wörter")
+    plt.xlabel("Gewichtung (%)")
+    plt.tight_layout()
+    plt.show()
+    
+def plot_multiple_topics(row, topic_ids, weight_col="weight_pct", top_n=8):
+    plt.figure(figsize=(10, 5))
+
+    for topic_id in topic_ids:
+        topic_key = f"Topic {topic_id}"
+        terms = row["topic_terms"][topic_key][:top_n]
+
+        words = [item["word"] for item in terms]
+        values = [item[weight_col] for item in terms]
+
+        plt.plot(values, marker="o", label=topic_key)
+
+    plt.title("Topic Vergleich")
+    plt.xlabel("Top-Wörter Rang")
+    plt.ylabel("Gewichtung (%)")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_topic_distribution(doc_topic_matrix, method_type="lsa"):
+    
+    if method_type == "lsa":
+        doc_topic_matrix = np.abs(doc_topic_matrix)
+
+    dominant_topics = doc_topic_matrix.argmax(axis=1)
+
+    counts = (
+        pd.Series(dominant_topics)
+        .value_counts()
+        .sort_index()
+    )
+
+    plt.figure(figsize=(8, 4))
+    counts.plot(kind="bar")
+    plt.title("Topic Verteilung")
+    plt.xlabel("Topic")
+    plt.ylabel("Anzahl Dokumente")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+    
+best_row = lsa_tuning_interpreted_by_lang["de"].iloc[0]
+
+plot_topic_terms(best_row, topic_id=1)
+plot_topic_terms(best_row, topic_id=2)
+
+plot_multiple_topics(best_row, topic_ids=[1, 2, 3])
+
+
+# +
+############
+# LSA/TF-IDF - TopWort Vergleich der Top3 Scores (en|de)
+############
+
+def topic_terms_to_table(row, weight_col="weight_pct"):
+    return pd.DataFrame({
+        topic: [
+            f'{item["word"]} ({item[weight_col]:.1f}%)'
+            for item in terms
+        ]
+        for topic, terms in row["topic_terms"].items()
+    })
+
+
+def display_top_topic_models(tuning_interpreted_by_lang, model_name, top_k=3, weight_col="weight_pct"):
+    for lang, tuning_df in tuning_interpreted_by_lang.items():
+
+        print(f"\n=== Top {top_k} {model_name} Modelle ({lang}) ===")
+
+        for rank, (idx, row) in enumerate(tuning_df.head(top_k).iterrows(), start=1):
+            print(
+                f"\n--- Rang {rank} | Index {idx} | "
+                f"Score: {row['overall_score']:.4f} | "
+                f"Topics: {row['n_topics']} ---"
+            )
+
+            display(topic_terms_to_table(row, weight_col=weight_col))
+
+display_top_topic_models(
+    tuning_interpreted_by_lang=lsa_tuning_interpreted_by_lang,
+    model_name="LSA/TF-IDF",
+    top_k=3
+)
+
+display_top_topic_models(
+    tuning_interpreted_by_lang=lda_tuning_interpreted_by_lang,
+    model_name="LDA/BoW",
+    top_k=3
+)
+
+# +
+############
+# Topic + Sentiment Analyse
+############
+
+# 1. Manuelle Auswahl finaler Modelle pro Sprache und Methode
+selected_models = {
+    "de": {
+        "lda": {
+            "method_type": "lda",
+            "title": "LDA BoW",
+            "row": lda_tuning_interpreted_by_lang["de"].iloc[0],
+            "vector_data": vectors_topic["bow_by_lang"]["de"],
+        },
+        "lsa": {
+            "method_type": "lsa",
+            "title": "LSA TF-IDF",
+            "row": lsa_tuning_interpreted_by_lang["de"].loc[8],
+            "vector_data": vectors_topic["tfidf_by_lang"]["de"],
+        },
     },
-#    "tfidf_lda": {
-#        "title": "LDA TF-IDF",
-#        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
-#        "method_type": "lda",
-#    },
-    "tfidf_lsa": {
-        "title": "LSA TF-IDF",
-        "vectors_by_lang": vectors_topic["tfidf_by_lang"],
-        "method_type": "lsa",
+    "en": {
+        "lda": {
+            "method_type": "lda",
+            "title": "LDA BoW",
+            "row": lda_tuning_interpreted_by_lang["en"].iloc[0],
+            "vector_data": vectors_topic["bow_by_lang"]["en"],
+        },
+        "lsa": {
+            "method_type": "lsa",
+            "title": "LSA TF-IDF",
+            "row": lsa_tuning_interpreted_by_lang["en"].iloc[0],
+            "vector_data": vectors_topic["tfidf_by_lang"]["en"],
+        },
     },
 }
 
-# Jedes konfigurierte Modell trainieren
-for method_key, config in methods.items():
 
-    # Hier werden die trainierten Ergebnisse je Sprache gespeichert
-    config["topics_by_lang"] = {}
+# 2. Finales Modell anhand gewählter Tuning-Zeile neu trainieren
+def fit_selected_topic_model(selection, random_state=42):
+    row = selection["row"]
+    method_type = selection["method_type"]
+    data = selection["vector_data"]
 
-    # Sprachgetrenntes Training, für "de" und "en"
-    for lang, data in config["vectors_by_lang"].items():
-        X = data["matrix"]  # Dokument-Term-Matrix der jeweiligen Sprache
+    X = data["matrix"]
 
-        # LDA-Modell trainieren - Für BoW und TF-IDF mit den selben Werten
-        if config["method_type"] == "lda":
-            model = LatentDirichletAllocation(
-                n_components=n_topics,
-                random_state=42,
-                learning_method="online",
-                max_iter=max_iter,
-                evaluate_every=-1,
-                batch_size = batch_size
+    if method_type == "lda":
+        model = LatentDirichletAllocation(
+            n_components=int(row["n_topics"]),
+            random_state=random_state,
+            learning_method="batch",
+            max_iter=20,
+            doc_topic_prior=None if pd.isna(row["alpha"]) else float(row["alpha"]),
+            topic_word_prior=None if pd.isna(row["eta"]) else float(row["eta"]),
+            evaluate_every=-1
+        )
+        doc_topic_matrix = model.fit_transform(X)
+
+    elif method_type == "lsa":
+        model = TruncatedSVD(
+            n_components=int(row["n_topics"]),
+            n_iter=int(row["n_iter"]),
+            random_state=random_state
+        )
+        doc_topic_matrix = model.fit_transform(X)
+
+    else:
+        raise ValueError("method_type muss 'lda' oder 'lsa' sein")
+
+    return {
+        "model": model,
+        "doc_topic_matrix": doc_topic_matrix,
+        "documents": data["documents"],
+        "features": data["feature_names"],
+    }
+
+
+# 3. Topic-Zuordnung je Dokument berechnen
+doc_topics = {}
+fitted_models = {}
+
+for lang, methods_dict in selected_models.items():
+    doc_topics[lang] = {}
+    fitted_models[lang] = {}
+
+    for method_key, selection in methods_dict.items():
+
+        result = fit_selected_topic_model(selection)
+        fitted_models[lang][method_key] = result
+
+        doc_topic_matrix = result["doc_topic_matrix"]
+        documents = result["documents"]
+        method_type = selection["method_type"]
+
+        if method_type == "lda":
+            dominant_topics = doc_topic_matrix.argmax(axis=1)
+            topic_strengths = doc_topic_matrix.max(axis=1)
+
+        elif method_type == "lsa":
+            abs_matrix = np.abs(doc_topic_matrix)
+            dominant_topics = abs_matrix.argmax(axis=1)
+            topic_strengths = abs_matrix.max(axis=1)
+
+        doc_topics[lang][method_key] = pd.DataFrame({
+            "document": documents,
+            "dominant_topic": dominant_topics + 1,
+            "topic_strength": topic_strengths
+        })
+
+
+# 4. Sentiment je Sprache berechnen
+sentiments = {
+    lang: build_sentiment_df(result, lang=lang)
+    for lang, result in vectors_topic["tfidf_by_lang"].items()
+}
+
+
+# 5. Topic-Zuordnung + Sentiment verbinden
+doc_topics_sentiment = {}
+
+for lang, methods_dict in doc_topics.items():
+    doc_topics_sentiment[lang] = {}
+
+    for method_key, df_topics in methods_dict.items():
+        doc_topics_sentiment[lang][method_key] = df_topics.merge(
+            sentiments[lang],
+            on="document",
+            how="left"
+        )
+
+
+# 6. Aggregierte Topic/Sentiment-Tabelle je Sprache und Modell
+topic_sentiment_summary = {}
+
+for lang, methods_dict in doc_topics_sentiment.items():
+    topic_sentiment_summary[lang] = {}
+
+    for method_key, df in methods_dict.items():
+        topic_sentiment_summary[lang][method_key] = (
+            df.groupby("dominant_topic")
+            .agg(
+                documents=("document", "count"),
+                avg_topic_strength=("topic_strength", "mean"),
+                avg_sentiment=("sentiment_score", "mean"),
+                positive=("sentiment_label", lambda x: (x == "positive").sum()),
+                neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
+                negative=("sentiment_label", lambda x: (x == "negative").sum())
             )
+            .reset_index()
+        )
 
-            # Manuelles Online-Training über mehrere Iterationen und Batches
-            for _ in tqdm(range(max_iter), desc=f'{config["title"]} Topic trainieren ({lang})'):
-                for i in range(0, X.shape[0], batch_size):
-                    model.partial_fit(X[i:i + batch_size])
 
-            # Dokumente in Topic-Wahrscheinlichkeiten transformieren
-            topic_matrix = model.transform(X)
+# 7. Ausgabe: LDA vs. LSA je Sprache
+for lang, methods_dict in topic_sentiment_summary.items():
 
-        # LSA-Modell trainieren
-        elif config["method_type"] == "lsa":
-            model = TruncatedSVD(
-                n_components=n_topics,
-                random_state=42
+    print(f"\n=== Topic + Sentiment Vergleich ({lang}) ===")
+
+    pos_threshold, neg_threshold = (0.5, -0.5) if lang == "de" else (0.1, -0.1)
+
+    for method_key, summary_df in methods_dict.items():
+        selection = selected_models[lang][method_key]
+
+        display(
+            style_topic_sentiment(
+                summary_df,
+                f"{selection['title']} ({lang}) - Topic & Sentiment Matrix",
+                pos_threshold=pos_threshold,
+                neg_threshold=neg_threshold
             )
-
-            # Dokumente direkt in latente Topic-Komponenten transformieren
-            topic_matrix = model.fit_transform(X)
-            print(f'{config["title"]} Topic trainiert ({lang})')
-
-
-        # Modell- und Ergebnisdaten zentral im methods-Dict speichern
-        config["topics_by_lang"][lang] = {
-            "model": model,
-            "doc_topic_matrix": topic_matrix,
-            "matrix": X,
-            "features": data["feature_names"],
-            "documents": data["documents"]
-        }
-
+        )
 
 # +
 ############
@@ -461,15 +651,50 @@ for lang in ["de", "en"]:
                 neg_threshold=neg_threshold
             )
         )
+# -
+
+
+
+
 
 # +
-# 6. Ausgabe: Topics per Method/ Language
-topic_table_de = build_topic_comparison_tables(doc_topics,methods,"de")
-topic_table_en = build_topic_comparison_tables(doc_topics,methods,"en")
+##########
+# Coherence je Modell/Sprache berechnen
+##########
 
-#display(style_topic_comparison(topic_table_de, "Topic Vergleich - DE"))
-#print()
-display(style_topic_comparison(topic_table_en, "Topic Vergleich - EN"))
+coherence_results = []
+
+for method_key, config in methods.items():
+    for lang, result in config["topics_by_lang"].items():
+
+        texts = tokenize_docs(result["documents"])
+
+        topics = get_topics_from_model(
+            model=result["model"],
+            feature_names=result["features"],
+            method_type=config["method_type"],
+            top_n=10
+        )
+
+        coherence_score = compute_pmi_coherence(
+            topics=topics,
+            texts=texts
+        )
+
+        coherence_results.append({
+            "method": method_key,
+            "title": config["title"],
+            "lang": lang,
+            "coherence": coherence_score
+        })
+
+        print(
+            f"{config['title']} ({lang}) "
+            f"Coherence: {coherence_score:.4f}"
+        )
+
+
+coherence_df = pd.DataFrame(coherence_results)
 
 
 # +
@@ -494,6 +719,8 @@ def plot_top_words_from_methods(methods, method_key, lang, topic_id, n_words=10)
 
 plot_top_words_from_methods(methods, "bow_lda", "de", topic_id=0)
 plot_top_words_from_methods(methods, "tfidf_lsa", "de", topic_id=0)
+# -
+
 
 
 # +

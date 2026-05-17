@@ -137,3 +137,86 @@ def build_topic_comparison_tables(doc_topics, methods, lang):
             rows.append(row)
 
     return pd.DataFrame(rows)
+
+def print_tuning_legend():
+    print("\n=== Legende zur Parameterbewertung ===\n")
+
+    print("COHERENCE:")
+    print("  ↑ höher = besser")
+    print("  → misst, wie gut Wörter innerhalb eines Topics zusammenpassen")
+    print("  → gute Topics: thematisch konsistente Wörter\n")
+
+    print("PERPLEXITY:")
+    print("  ↓ niedriger = besser (nur für LDA relevant)")
+    print("  → misst, wie gut das Modell die Daten erklärt")
+    print("  → Achtung: nicht allein zur Bewertung verwenden!\n")
+
+    print("LARGEST_TOPIC_SHARE:")
+    print("  ↓ niedriger = besser")
+    print("  → Anteil des größten Topics")
+    print("  → gut: < 0.35 (ausgewogene Topics)")
+    print("  → schlecht: > 0.50 (ein Topic dominiert)\n")
+
+    print("N_TOPICS:")
+    print("  → Anzahl Topics")
+    print("  → zu klein: Themen vermischen sich")
+    print("  → zu groß: Topics werden redundant oder leer\n")
+
+    print("ALPHA (doc_topic_prior):")
+    print("  ↓ kleiner = besser interpretierbar")
+    print("  → steuert, wie viele Topics ein Dokument hat")
+    print("  → klein (0.01–0.1): klare Topic-Zuordnung")
+    print("  → groß: Dokumente enthalten viele Topics (unscharf)\n")
+
+    print("ETA (topic_word_prior):")
+    print("  ↓ kleiner = bessere Topics")
+    print("  → steuert, wie viele Wörter ein Topic dominieren")
+    print("  → klein (0.01–0.1): klare, prägnante Topics")
+    print("  → groß: viele generische Wörter im Topic\n")
+
+    print("GESAMTBEWERTUNG (overall_eval):")
+    print("  good = gute Parameterkombination")
+    print("  ok   = brauchbar, aber nicht optimal")
+    print("  bad  = vermeiden\n")
+
+    print("EMPFEHLUNG:")
+    print("  → Wähle Modelle mit:")
+    print("     - hoher coherence")
+    print("     - niedriger largest_topic_share")
+    print("     - stabilen, interpretierbaren Topics\n")
+
+def print_overall_score_info():
+    print("\n=== Erklärung Overall Score ===\n")
+
+    print("Der Overall Score bewertet die Qualität eines Topic-Modells (0 bis 1).")
+    print("Je höher der Score, desto besser das Modell.\n")
+
+    print("Er setzt sich aus drei Komponenten zusammen:\n")
+
+    print("1. Coherence (Gewichtung: 50%)")
+    print("   → misst, wie gut Wörter innerhalb eines Topics zusammenpassen")
+    print("   → höher = besser\n")
+
+    print("2. Topic Balance (Gewichtung: 30%)")
+    print("   → misst, wie gleichmäßig die Dokumente auf Topics verteilt sind")
+    print("   → niedriger Anteil des größten Topics = besser\n")
+
+    print("3. Perplexity (Gewichtung: 20%)")
+    print("   → misst, wie gut das Modell die Daten erklärt")
+    print("   → niedriger = besser (wird intern invertiert)\n")
+
+    print("Alle Werte werden normalisiert und kombiniert:\n")
+
+    print("   Overall Score = 0.5 * Coherence")
+    print("                 + 0.3 * Topic Balance")
+    print("                 + 0.2 * Perplexity\n")
+
+    print("Interpretation:")
+    print("   > 0.8   → sehr gut")
+    print("   0.6–0.8 → gut")
+    print("   0.4–0.6 → ok")
+    print("   < 0.4   → schwach\n")
+
+    print("Hinweis:")
+    print("   Der Score ist eine Orientierungshilfe.")
+    print("   Die inhaltliche Interpretation der Topics bleibt entscheidend.\n")

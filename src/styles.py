@@ -77,3 +77,46 @@ def style_compare_top_tokens(df, caption):
     )
 
     return styled
+
+def style_tuning_eval_generic(
+    df,
+    style_metrics,
+    score_col="overall_score",
+    hide_cols=None
+):
+    display_df = df.drop(columns=hide_cols or [], errors="ignore")
+
+    styler = display_df.style
+
+    format_dict = {
+        score_col: "{:.4f}"
+    }
+
+    for metric in style_metrics:
+        col = metric["col"]
+        higher_is_better = metric["higher_is_better"]
+        good_quantile = metric["good_quantile"]
+        bad_quantile = metric["bad_quantile"]
+        fmt = metric.get("format", "{:.4f}")
+
+        good_value = display_df[col].quantile(good_quantile)
+        bad_value = display_df[col].quantile(bad_quantile)
+
+        def color_value(v, good_value=good_value, bad_value=bad_value, higher_is_better=higher_is_better):
+            if higher_is_better:
+                if v >= good_value:
+                    return "background-color: #c6efce"
+                elif v <= bad_value:
+                    return "background-color: #ffc7ce"
+            else:
+                if v <= good_value:
+                    return "background-color: #c6efce"
+                elif v >= bad_value:
+                    return "background-color: #ffc7ce"
+
+            return "background-color: #ffeb9c"
+
+        styler = styler.map(color_value, subset=[col])
+        format_dict[col] = fmt
+
+    return styler.format(format_dict)
