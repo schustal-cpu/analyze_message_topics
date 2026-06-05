@@ -29,6 +29,7 @@ The system is designed to:
 ---
 
 ## Project Structure
+```
 analyze_message_topics/
 │── data/                  # Generated and raw datasets (excluded via .gitignore)
 │── src/                   # Core processing modules
@@ -41,7 +42,7 @@ analyze_message_topics/
 │── analyze_data.py        # Main analysis pipeline
 │── requirements.txt
 │── README.md
-
+```
 
 ---
 
@@ -113,18 +114,25 @@ Create a virtual environment and install dependencies:
 
 ```bash
 python -m venv venv
-
+```
 Activate environment:
-Shell#.\venv\Scripts\activate
+```bash
+.\venv\Scripts\activate
+```
 Install requirements:
-Shell#pip install -r requirements.txt
+```bash
+pip install -r requirements.txt
+```
 
 Usage
 Run the pipeline in the following order:
 1. Generate dataset
-Shell#.\python get_data.py
+```bash
+.\python get_data.py
+```
 2. Run analysis
-Shell#.\python analyze_data.py
+```bash
+.\python analyze_data.py
 ```
 Output
 The analysis produces:
