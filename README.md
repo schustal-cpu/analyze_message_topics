@@ -141,20 +141,15 @@ Run the pipeline in the following order:
 ```bash
 .\python get_data.py
 ```
-2. Run analysis in Jupyter Notebook
-```bash
-.\python analyze_data.py
-```
-## Output
-The analysis produces:
-
-Extracted topics (grouped by sentiment)
-Top words per topic
-Comparison of LDA and LSA results
+2. Run analyze_data.ipynb in Jupyter Notebook
 
 --- 
+## Output Interpretation
+The analysis produces:
 
-## Interpretation
+- Extracted topics (grouped by sentiment)
+- Top words per topic
+- Comparison of LDA and LSA results
 
 TODO: add example output (topics, keywords, scores, or plots)
 
@@ -187,7 +182,7 @@ Python 3.14.3
 Virtual environment (venv)
 
 See requirements.txt for full dependencies.
-
+---
 
 ## Data Usage and Licensing
 
@@ -232,7 +227,6 @@ Key considerations:
 - Users are responsible for ensuring compliance with applicable **data protection laws** and terms of use
 - Personal or sensitive information must be handled appropriately
 
----
 
 ### Data Availability
 
