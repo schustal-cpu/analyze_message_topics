@@ -1,88 +1,143 @@
 # src/training.py
 
-from itertools import product
+from itertools import product, combinations
 from collections import Counter
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from sklearn.decomposition import LatentDirichletAllocation
 
-from sklearn.decomposition import TruncatedSVD, LatentDirichletAllocation
+from sklearn.decomposition import LatentDirichletAllocation, TruncatedSVD
 
 def tune_lda_models(
     data,
     topic_grid,
     alpha_grid,
     eta_grid,
-    max_iter=20,
+    max_iter_grid=(20,),
+    random_states=(42,),
     learning_method="batch",
-    random_state=42,
     top_n=10,
     lang=None
 ):
     tuning_results = []
 
     X = data["matrix"]
-    texts = tokenize_docs(data["documents"])
+    texts = tokenize_docs_with_vectorizer(
+        data["documents"],
+        data["vectorizer"]
+    )
 
-    total_runs = len(topic_grid) * len(alpha_grid) * len(eta_grid)
+    total_runs = (
+        len(topic_grid)
+        * len(alpha_grid)
+        * len(eta_grid)
+        * len(max_iter_grid)
+    )
 
     with tqdm(total=total_runs, desc=f"LDA Tuning ({lang})") as pbar:
 
-        for n_topics, alpha, eta in product(topic_grid, alpha_grid, eta_grid):
+        for n_topics, alpha, eta, max_iter in product(
+            topic_grid,
+            alpha_grid,
+            eta_grid,
+            max_iter_grid
+        ):
 
-            model = LatentDirichletAllocation(
-                n_components=n_topics,
-                random_state=random_state,
-                learning_method=learning_method,
-                max_iter=max_iter,
-                doc_topic_prior=alpha,
-                topic_word_prior=eta,
-                evaluate_every=-1
-            )
+            coherence_scores = []
+            perplexity_scores = []
+            largest_topic_share_scores = []
+            avg_word_overlap_scores = []
+            max_word_overlap_scores = []
 
-            topic_matrix = model.fit_transform(X)
+            best_seed_result = None
+            best_seed_coherence = -np.inf
 
-            topic_terms = get_topic_terms_from_model(
-                model=model,
-                feature_names=data["feature_names"],
-                method_type="lda",
-                top_n=top_n
-            )
+            for seed in random_states:
 
-            topics = [
-                [item["word"] for item in terms]
-                for terms in topic_terms.values()
-            ]
+                model = LatentDirichletAllocation(
+                    n_components=n_topics,
+                    random_state=seed,
+                    learning_method=learning_method,
+                    max_iter=max_iter,
+                    doc_topic_prior=alpha,
+                    topic_word_prior=eta,
+                    evaluate_every=-1
+                )
 
-            coherence = compute_pmi_coherence(
-                topics=topics,
-                texts=texts
-            )
+                topic_matrix = model.fit_transform(X)
 
-            topic_counts = pd.Series(
-                topic_matrix.argmax(axis=1)
-            ).value_counts(normalize=True)
+                topic_terms = get_topic_terms_from_model(
+                    model=model,
+                    feature_names=data["feature_names"],
+                    method_type="lda",
+                    top_n=top_n
+                )
 
-            perplexity = model.perplexity(X)
+                topics = [
+                    [item["word"] for item in terms]
+                    for terms in topic_terms.values()
+                ]
+
+                coherence = compute_pmi_coherence(
+                    topics=topics,
+                    texts=texts
+                )
+
+                overlap_results = compute_topic_word_overlap(topics)
+
+                topic_counts = pd.Series(
+                    topic_matrix.argmax(axis=1)
+                ).value_counts(normalize=True)
+
+                perplexity = model.perplexity(X)
+
+                coherence_scores.append(coherence)
+                perplexity_scores.append(perplexity)
+                largest_topic_share_scores.append(topic_counts.max())
+                avg_word_overlap_scores.append(overlap_results["avg_word_overlap"])
+                max_word_overlap_scores.append(overlap_results["max_word_overlap"])
+
+                if coherence > best_seed_coherence:
+                    best_seed_coherence = coherence
+                    best_seed_result = {
+                        "model": model,
+                        "topic_terms": topic_terms,
+                        "doc_topic_matrix": topic_matrix,
+                        "seed": seed
+                    }
 
             tuning_results.append({
                 "n_topics": n_topics,
                 "alpha": alpha,
                 "eta": eta,
-                "coherence": coherence,
-                "largest_topic_share": topic_counts.max(),
-                "perplexity": perplexity,
-                "topic_terms": topic_terms,
-                "doc_topic_matrix": topic_matrix
+                "max_iter": max_iter,
+
+                "coherence": np.mean(coherence_scores),
+                "coherence_std": np.std(coherence_scores),
+
+                "perplexity": np.mean(perplexity_scores),
+                "perplexity_std": np.std(perplexity_scores),
+
+                "largest_topic_share": np.mean(largest_topic_share_scores),
+                "largest_topic_share_std": np.std(largest_topic_share_scores),
+
+                "avg_word_overlap": np.mean(avg_word_overlap_scores),
+                "max_word_overlap": np.mean(max_word_overlap_scores),
+
+                "best_seed": best_seed_result["seed"],
+                "topic_terms": best_seed_result["topic_terms"],
+                "doc_topic_matrix": best_seed_result["doc_topic_matrix"],
+                "model": best_seed_result["model"]
             })
 
             pbar.update(1)
             pbar.set_postfix({
                 "k": n_topics,
-                "coh": f"{coherence:.2f}",
-                "perp": f"{perplexity:.0f}"
+                "iter": max_iter,
+                "coh": f"{np.mean(coherence_scores):.2f}",
+                "std": f"{np.std(coherence_scores):.3f}",
+                "perp": f"{np.mean(perplexity_scores):.0f}"
             })
 
     return pd.DataFrame(tuning_results)
@@ -92,14 +147,17 @@ def tune_lsa_models(
     data,
     topic_grid,
     n_iter_grid,          # ← neu
-    random_state=42,
+    random_state,
     top_n=10,
     lang=None
 ):
     tuning_results = []
 
     X = data["matrix"]
-    texts = tokenize_docs(data["documents"])
+    texts = tokenize_docs_with_vectorizer(
+        data["documents"],
+        data["vectorizer"]
+    )
 
     total_runs = len(topic_grid) * len(n_iter_grid)
 
@@ -114,7 +172,6 @@ def tune_lsa_models(
             )
 
             topic_matrix = model.fit_transform(X)
-
             
             topic_terms = get_topic_terms_from_model(
                 model=model,
@@ -132,6 +189,8 @@ def tune_lsa_models(
                 topics=topics,
                 texts=texts
             )
+            
+            overlap_results = compute_topic_word_overlap(topics)
 
             topic_counts = pd.Series(
                 np.abs(topic_matrix).argmax(axis=1)
@@ -150,7 +209,10 @@ def tune_lsa_models(
                     for i, words in enumerate(topics)
                 },
                 "topic_terms": topic_terms,
-                "doc_topic_matrix": topic_matrix
+                "doc_topic_matrix": topic_matrix,
+                "avg_word_overlap": overlap_results["avg_word_overlap"],
+                "max_word_overlap": overlap_results["max_word_overlap"],
+                "model": model
             })
 
             pbar.update(1)
@@ -163,10 +225,12 @@ def tune_lsa_models(
 
     return pd.DataFrame(tuning_results)
     
-def tokenize_docs(documents):
+    
+def tokenize_docs_with_vectorizer(documents, vectorizer):
+    analyzer = vectorizer.build_analyzer()
 
     return [
-        str(doc).lower().split()
+        analyzer(str(doc))
         for doc in documents
         if isinstance(doc, str) and doc.strip()
     ]
@@ -224,6 +288,32 @@ def compute_pmi_coherence(topics, texts):
             topic_scores.append(np.mean(pair_scores))
 
     return np.mean(topic_scores) if topic_scores else np.nan
+
+def compute_topic_word_overlap(topics):
+    similarities = []
+
+    for topic_a, topic_b in combinations(topics, 2):
+        set_a = set(topic_a)
+        set_b = set(topic_b)
+
+        union = set_a | set_b
+        intersection = set_a & set_b
+
+        if len(union) == 0:
+            continue
+
+        similarities.append(len(intersection) / len(union))
+
+    if not similarities:
+        return {
+            "avg_word_overlap": 0.0,
+            "max_word_overlap": 0.0
+        }
+
+    return {
+        "avg_word_overlap": float(np.mean(similarities)),
+        "max_word_overlap": float(np.max(similarities))
+    }
 
 def get_topic_terms_from_model(model, feature_names, method_type, top_n=10):
     topic_terms = {}

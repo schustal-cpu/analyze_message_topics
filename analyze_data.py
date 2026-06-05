@@ -190,12 +190,13 @@ lda_tuning_results_by_lang = {}
 for lang, data in vectors_topic["bow_by_lang"].items():
     lda_tuning_results_by_lang[lang] = tune_lda_models(
         data=data,
-        topic_grid=[15, 20],                 # Anzahl Topics (zu klein = zu grob, zu groß = redundant)
-        alpha_grid=[0.01, 0.05, 0.1, None],  # Dokument→Topic-Verteilung (klein = wenige dominante Topics, groß = mehrere Topics)
-        eta_grid=[0.01, 0.05, 0.1, None],    # Topic→Wort-Verteilung (klein = wenige dominante Wörter, groß = breitere Topics)
-        max_iter=10,                         # Trainingsdurchläufe (mehr = bessere Konvergenz, langsamer)
-        learning_method="batch",             # batch = stabil, online = schneller bei großen Daten
-        lang=lang                            # nur für Logging/Progress
+        topic_grid=[5, 10, 15, 20],
+        alpha_grid=[0.01, 0.1],
+        eta_grid=[0.01, 0.1],
+        max_iter_grid=[10, 20],
+        random_states=[1, 2, 3],
+        learning_method="batch",
+        lang=lang
     )
 
 # +
@@ -204,9 +205,17 @@ for lang, data in vectors_topic["bow_by_lang"].items():
 ############
 
 lda_tuning_config = [
-    {"col": "coherence", "weight": 0.5, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
-    {"col": "perplexity", "weight": 0.2, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
-    {"col": "largest_topic_share", "weight": 0.3, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    {"col": "coherence",               "weight": 0.30, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.2f}"},
+    {"col": "coherence_std",           "weight": 0.10, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
+    
+    {"col": "perplexity",              "weight": 0.20, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    #{"col": "perplexity_std",          "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
+    
+    {"col": "largest_topic_share",     "weight": 0.15, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    #{"col": "largest_topic_share_std", "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
+    
+    {"col": "avg_word_overlap",        "weight": 0.10, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    #{"col": "max_word_overlap",        "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"}
 ]
 
 lda_tuning_interpreted_by_lang = {}
@@ -226,7 +235,7 @@ for lang, tuning_df_lang in lda_tuning_results_by_lang.items():
         style_tuning_eval_generic(
             tuning_interpreted.head(15),  # ← hier begrenzen
             style_metrics=lda_tuning_config,
-            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix"]
+            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix", "model", "max_word_overlap", "largest_topic_share_std", "perplexity_std"]
         )
     )
 
@@ -240,9 +249,20 @@ lsa_tuning_results_by_lang = {}
 for lang, data in vectors_topic["tfidf_by_lang"].items():
     lsa_tuning_results_by_lang[lang] = tune_lsa_models(
         data=data,
-        topic_grid=[15, 20, 25, 30],   # Anzahl Topics / Dimensionen (mehr = feinere Struktur, aber schwerer interpretierbar)
-        n_iter_grid=[5, 10, 20],       # Iterationen für SVD (mehr = stabilere Komponenten, aber langsamer)
-        lang=lang                      # nur für Logging/Progress
+
+        # Anzahl semantischer Komponenten
+        # mehr = feinere Trennung, aber schwerer interpretierbar
+        topic_grid=[10, 20, 30, 40],
+
+        # Iterationen der randomized SVD
+        # mehr = stabilere Approximation, aber langsamer
+        n_iter_grid=[10, 20, 30],
+
+        # fixer Seed für reproduzierbare Ergebnisse
+        random_state=42,
+
+        # nur für Progress/Logging
+        lang=lang
     )
 
 # +
@@ -251,9 +271,10 @@ for lang, data in vectors_topic["tfidf_by_lang"].items():
 ############
 
 lsa_tuning_config = [
-    {"col": "coherence", "weight": 0.5, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
-    {"col": "explained_variance", "weight": 0.2, "higher_is_better": True, "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
-    {"col": "largest_topic_share", "weight": 0.3, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    {"col": "avg_word_overlap",     "weight": 0.16, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
+    {"col": "coherence",            "weight": 0.42, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
+    {"col": "explained_variance",   "weight": 0.17, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
+    {"col": "largest_topic_share",  "weight": 0.25, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
 ]
 
 lsa_tuning_interpreted_by_lang = {}
@@ -271,105 +292,31 @@ for lang, tuning_df_lang in lsa_tuning_results_by_lang.items():
 
     display(
         style_tuning_eval_generic(
-            tuning_interpreted,
+            tuning_interpreted.head(10),
             style_metrics=lsa_tuning_config,
-            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix"]
+            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix", "model"]
         )
     )
+# -
 
+# Zeigt die wichtigsten Wörter je Topic
+# Erkenntnis:
+# - Sind Topics semantisch klar/interpretiertbar?
+# - Gibt es generische oder unscharfe Topics?
+# - Sind Topics redundant oder klar getrennt?
+plot_multiple_topics(best_row)
 
-# +
-def plot_topic_terms(row, topic_id, weight_col="weight_pct", top_n=10):
-    topic_key = f"Topic {topic_id}"
-    terms = row["topic_terms"][topic_key][:top_n]
-
-    words = [item["word"] for item in terms][::-1]
-    values = [item[weight_col] for item in terms][::-1]
-
-    plt.figure(figsize=(8, 4))
-    plt.barh(words, values)
-    plt.title(f"{topic_key} – Top Wörter")
-    plt.xlabel("Gewichtung (%)")
-    plt.tight_layout()
-    plt.show()
-    
-def plot_multiple_topics(row, topic_ids, weight_col="weight_pct", top_n=8):
-    plt.figure(figsize=(10, 5))
-
-    for topic_id in topic_ids:
-        topic_key = f"Topic {topic_id}"
-        terms = row["topic_terms"][topic_key][:top_n]
-
-        words = [item["word"] for item in terms]
-        values = [item[weight_col] for item in terms]
-
-        plt.plot(values, marker="o", label=topic_key)
-
-    plt.title("Topic Vergleich")
-    plt.xlabel("Top-Wörter Rang")
-    plt.ylabel("Gewichtung (%)")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-def plot_topic_distribution(doc_topic_matrix, method_type="lsa"):
-    
-    if method_type == "lsa":
-        doc_topic_matrix = np.abs(doc_topic_matrix)
-
-    dominant_topics = doc_topic_matrix.argmax(axis=1)
-
-    counts = (
-        pd.Series(dominant_topics)
-        .value_counts()
-        .sort_index()
-    )
-
-    plt.figure(figsize=(8, 4))
-    counts.plot(kind="bar")
-    plt.title("Topic Verteilung")
-    plt.xlabel("Topic")
-    plt.ylabel("Anzahl Dokumente")
-    plt.xticks(rotation=0)
-    plt.tight_layout()
-    plt.show()
-    
-best_row = lsa_tuning_interpreted_by_lang["de"].iloc[0]
-
-plot_topic_terms(best_row, topic_id=1)
-plot_topic_terms(best_row, topic_id=2)
-
-plot_multiple_topics(best_row, topic_ids=[1, 2, 3])
-
+# Zeigt Überschneidungen der Top-Wörter zwischen Topics
+# Erkenntnis:
+# - Gibt es redundante/ähnliche Topics?
+# - Wurden zu viele Topics erzeugt?
+# - Wie gut ist die Topic-Separation?
+plot_topic_overlap_matrix(best_row)
 
 # +
 ############
 # LSA/TF-IDF - TopWort Vergleich der Top3 Scores (en|de)
 ############
-
-def topic_terms_to_table(row, weight_col="weight_pct"):
-    return pd.DataFrame({
-        topic: [
-            f'{item["word"]} ({item[weight_col]:.1f}%)'
-            for item in terms
-        ]
-        for topic, terms in row["topic_terms"].items()
-    })
-
-
-def display_top_topic_models(tuning_interpreted_by_lang, model_name, top_k=3, weight_col="weight_pct"):
-    for lang, tuning_df in tuning_interpreted_by_lang.items():
-
-        print(f"\n=== Top {top_k} {model_name} Modelle ({lang}) ===")
-
-        for rank, (idx, row) in enumerate(tuning_df.head(top_k).iterrows(), start=1):
-            print(
-                f"\n--- Rang {rank} | Index {idx} | "
-                f"Score: {row['overall_score']:.4f} | "
-                f"Topics: {row['n_topics']} ---"
-            )
-
-            display(topic_terms_to_table(row, weight_col=weight_col))
 
 display_top_topic_models(
     tuning_interpreted_by_lang=lsa_tuning_interpreted_by_lang,
@@ -385,371 +332,320 @@ display_top_topic_models(
 
 # +
 ############
-# Topic + Sentiment Analyse
+# FINAL TOPIC + SENTIMENT PIPELINE
+# Separate Vector Spaces:
+# - Topic Modeling
+# - Sentiment Analysis
 ############
 
-# 1. Manuelle Auswahl finaler Modelle pro Sprache und Methode
+
+############
+# 2. Manually Select Final Models
+############
+# IDs = manually evaluated best models
+
 selected_models = {
+
     "de": {
-        "lda": {
-            "method_type": "lda",
-            "title": "LDA BoW",
-            "row": lda_tuning_interpreted_by_lang["de"].iloc[0],
-            "vector_data": vectors_topic["bow_by_lang"]["de"],
-        },
-        "lsa": {
-            "method_type": "lsa",
-            "title": "LSA TF-IDF",
-            "row": lsa_tuning_interpreted_by_lang["de"].loc[8],
-            "vector_data": vectors_topic["tfidf_by_lang"]["de"],
-        },
+        "method": "lda",
+        "title": "LDA BoW (de)",
+
+        "row": lda_tuning_interpreted_by_lang["de"].iloc[0],
+
+        "vector_topic": vectors_topic["bow_by_lang"]["de"],
+        "vector_sentiment": vectors_sentiment["bow_by_lang"]["de"],
     },
+
     "en": {
-        "lda": {
-            "method_type": "lda",
-            "title": "LDA BoW",
-            "row": lda_tuning_interpreted_by_lang["en"].iloc[0],
-            "vector_data": vectors_topic["bow_by_lang"]["en"],
-        },
-        "lsa": {
-            "method_type": "lsa",
-            "title": "LSA TF-IDF",
-            "row": lsa_tuning_interpreted_by_lang["en"].iloc[0],
-            "vector_data": vectors_topic["tfidf_by_lang"]["en"],
-        },
-    },
+        "method": "lsa",
+        "title": "LSA TFIDF (en)",
+
+        "row": lsa_tuning_interpreted_by_lang["en"].iloc[3],
+
+        "vector_topic": vectors_topic["tfidf_by_lang"]["en"],
+        "vector_sentiment": vectors_sentiment["tfidf_by_lang"]["en"],
+    }
 }
 
 
-# 2. Finales Modell anhand gewählter Tuning-Zeile neu trainieren
-def fit_selected_topic_model(selection, random_state=42):
+############
+# 3. Extract Final Topic Models
+############
+
+def get_selected_topic_model(selection):
+
     row = selection["row"]
-    method_type = selection["method_type"]
-    data = selection["vector_data"]
-
-    X = data["matrix"]
-
-    if method_type == "lda":
-        model = LatentDirichletAllocation(
-            n_components=int(row["n_topics"]),
-            random_state=random_state,
-            learning_method="batch",
-            max_iter=20,
-            doc_topic_prior=None if pd.isna(row["alpha"]) else float(row["alpha"]),
-            topic_word_prior=None if pd.isna(row["eta"]) else float(row["eta"]),
-            evaluate_every=-1
-        )
-        doc_topic_matrix = model.fit_transform(X)
-
-    elif method_type == "lsa":
-        model = TruncatedSVD(
-            n_components=int(row["n_topics"]),
-            n_iter=int(row["n_iter"]),
-            random_state=random_state
-        )
-        doc_topic_matrix = model.fit_transform(X)
-
-    else:
-        raise ValueError("method_type muss 'lda' oder 'lsa' sein")
+    data = selection["vector_topic"]
 
     return {
-        "model": model,
-        "doc_topic_matrix": doc_topic_matrix,
+        "model": row["model"],
+        "topic_terms": row["topic_terms"],
+        "doc_topic_matrix": row["doc_topic_matrix"],
         "documents": data["documents"],
         "features": data["feature_names"],
     }
 
 
-# 3. Topic-Zuordnung je Dokument berechnen
-doc_topics = {}
 fitted_models = {}
 
-for lang, methods_dict in selected_models.items():
-    doc_topics[lang] = {}
-    fitted_models[lang] = {}
+for lang, selection in selected_models.items():
 
-    for method_key, selection in methods_dict.items():
-
-        result = fit_selected_topic_model(selection)
-        fitted_models[lang][method_key] = result
-
-        doc_topic_matrix = result["doc_topic_matrix"]
-        documents = result["documents"]
-        method_type = selection["method_type"]
-
-        if method_type == "lda":
-            dominant_topics = doc_topic_matrix.argmax(axis=1)
-            topic_strengths = doc_topic_matrix.max(axis=1)
-
-        elif method_type == "lsa":
-            abs_matrix = np.abs(doc_topic_matrix)
-            dominant_topics = abs_matrix.argmax(axis=1)
-            topic_strengths = abs_matrix.max(axis=1)
-
-        doc_topics[lang][method_key] = pd.DataFrame({
-            "document": documents,
-            "dominant_topic": dominant_topics + 1,
-            "topic_strength": topic_strengths
-        })
+    fitted_models[lang] = get_selected_topic_model(selection)
 
 
-# 4. Sentiment je Sprache berechnen
-sentiments = {
-    lang: build_sentiment_df(result, lang=lang)
-    for lang, result in vectors_topic["tfidf_by_lang"].items()
-}
+############
+# 4. Determine Dominant Topic per Document
+############
 
+doc_topics = {}
 
-# 5. Topic-Zuordnung + Sentiment verbinden
+for lang, selection in selected_models.items():
+
+    result = get_selected_topic_model(selection)
+
+    doc_topic_matrix = result["doc_topic_matrix"]
+    documents = result["documents"]
+
+    method = selection["method"]
+
+    if method == "lda":
+        dominant_topics = doc_topic_matrix.argmax(axis=1)
+        topic_strengths = doc_topic_matrix.max(axis=1)
+
+    elif method == "lsa":
+        abs_matrix = np.abs(doc_topic_matrix)
+        dominant_topics = abs_matrix.argmax(axis=1)
+        topic_strengths = abs_matrix.max(axis=1)
+
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    doc_topics[lang] = pd.DataFrame({
+        "doc_id": range(len(documents)),
+        "document": documents,
+        "dominant_topic": dominant_topics + 1,
+        "topic_strength": topic_strengths
+    })
+
+print(doc_topics.keys())
+
+############
+# 5. Sentiment Analysis
+############
+
+sentiments = {}
+
+for lang, selection in selected_models.items():
+
+    sentiments[lang] = build_sentiment_df(
+        selection["vector_sentiment"],
+        lang=lang
+    )
+
+    
+############
+# 6. Merge Topic + Sentiment
+############
+
 doc_topics_sentiment = {}
 
-for lang, methods_dict in doc_topics.items():
-    doc_topics_sentiment[lang] = {}
+for lang in doc_topics.keys():
 
-    for method_key, df_topics in methods_dict.items():
-        doc_topics_sentiment[lang][method_key] = df_topics.merge(
-            sentiments[lang],
-            on="document",
-            how="left"
-        )
+    doc_topics_sentiment[lang] = doc_topics[lang].merge(
+        sentiments[lang],
+        on="doc_id",
+        how="left",
+        suffixes=("_topic", "_sentiment")
+    )
 
+############
+# 7. Aggregate Topic + Sentiment Matrix
+############
 
-# 6. Aggregierte Topic/Sentiment-Tabelle je Sprache und Modell
 topic_sentiment_summary = {}
 
-for lang, methods_dict in doc_topics_sentiment.items():
-    topic_sentiment_summary[lang] = {}
+for lang, df in doc_topics_sentiment.items():
 
-    for method_key, df in methods_dict.items():
-        topic_sentiment_summary[lang][method_key] = (
-            df.groupby("dominant_topic")
-            .agg(
-                documents=("document", "count"),
-                avg_topic_strength=("topic_strength", "mean"),
-                avg_sentiment=("sentiment_score", "mean"),
-                positive=("sentiment_label", lambda x: (x == "positive").sum()),
-                neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
-                negative=("sentiment_label", lambda x: (x == "negative").sum())
-            )
-            .reset_index()
+    topic_sentiment_summary[lang] = (
+        df.groupby("dominant_topic")
+        .agg(
+            documents=("document_topic", "count"),
+            avg_topic_strength=("topic_strength", "mean"),
+            avg_sentiment=("sentiment_score", "mean"),
+            positive=("sentiment_label", lambda x: (x == "positive").sum()),
+            neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
+            negative=("sentiment_label", lambda x: (x == "negative").sum())
         )
+        .reset_index()
+    )
 
 
-# 7. Ausgabe: LDA vs. LSA je Sprache
-for lang, methods_dict in topic_sentiment_summary.items():
+############
+# 8. Display Final Topic + Sentiment Matrices
+############
+
+for lang, summary_df in topic_sentiment_summary.items():
+
+    selection = selected_models[lang]
 
     print(f"\n=== Topic + Sentiment Vergleich ({lang}) ===")
 
-    pos_threshold, neg_threshold = (0.5, -0.5) if lang == "de" else (0.1, -0.1)
-
-    for method_key, summary_df in methods_dict.items():
-        selection = selected_models[lang][method_key]
-
-        display(
-            style_topic_sentiment(
-                summary_df,
-                f"{selection['title']} ({lang}) - Topic & Sentiment Matrix",
-                pos_threshold=pos_threshold,
-                neg_threshold=neg_threshold
-            )
+    display(
+        style_topic_sentiment(
+            summary_df,
+            f"{selection['title']} - Topic & Sentiment Matrix",
+            pos_threshold=0.1,
+            neg_threshold=-0.1
         )
-
-# +
-############
-# Topic + Sentiment Analyse
-############
-
-# 1. Topic-Zuordnung je Modell
-doc_topics = {}
-
-for method_key, config in methods.items():
-    doc_topics[method_key] = {}
-
-    for lang, result in config["topics_by_lang"].items():
-
-        doc_topic_matrix = result["doc_topic_matrix"]
-        documents = result["documents"]
-        method_type = config["method_type"]
-
-        # --------------------
-        # Dominantes Topic je Dokument
-        # --------------------
-        if method_type == "lda":
-            dominant_topics = doc_topic_matrix.argmax(axis=1)
-            topic_strengths = doc_topic_matrix.max(axis=1)
-
-        elif method_type == "lsa":
-            dominant_topics = np.abs(doc_topic_matrix).argmax(axis=1)
-            topic_strengths = np.abs(doc_topic_matrix).max(axis=1)
-
-        # --------------------
-        # DataFrame je Dokument
-        # --------------------
-        df_topics = pd.DataFrame({
-            "document": documents,
-            "dominant_topic": dominant_topics + 1,
-            "topic_strength": topic_strengths
-        })
-
-        doc_topics[method_key][lang] = df_topics
-
-
-# 2. Sentiment je Sprache berechnen
-# Sentiment wird nur anhand TFIDF Vektor berechnet
-sentiments = {
-    lang: build_sentiment_df(result, lang=lang)
-    for lang, result in vectors_topic["tfidf_by_lang"].items()
-}
-
-# 3. Topic-Zuordnung + Sentiment verbinden
-doc_topics_sentiment = {
-    method: {
-        lang: df_topics.merge(
-            sentiments[lang],
-            on="document",
-            how="left"
-        )
-        for lang, df_topics in lang_results.items()
-    }
-    for method, lang_results in doc_topics.items()
-}
-
-# 4. Aggregierte Topic/Sentiment-Tabelle je Modell
-topic_sentiment_summary = {
-    method: {
-        lang: (
-            df.groupby("dominant_topic")
-            .agg(
-                documents=("document", "count"),
-                avg_topic_strength=("topic_strength", "mean"),
-                avg_sentiment=("sentiment_score", "mean"),
-                positive=("sentiment_label", lambda x: (x == "positive").sum()),
-                neutral=("sentiment_label", lambda x: (x == "neutral").sum()),
-                negative=("sentiment_label", lambda x: (x == "negative").sum())
-            )
-            .reset_index()
-        )
-        for lang, df in lang_results.items()
-    }
-    for method, lang_results in doc_topics_sentiment.items()
-}
-
-# 5. Ausgabe: Topic + Sentiment je Modell und Sprache
-for lang in ["de", "en"]:
-
-    if lang == "de":
-        pos_threshold, neg_threshold = 0.5, -0.5
-    elif lang == "en":
-        pos_threshold, neg_threshold = 0.1, -0.1
-
-    for method_key, config in methods.items():
-        display(
-            style_topic_sentiment(
-                topic_sentiment_summary[method_key][lang],
-                f"{config['title']} ({lang}) - Topic & Sentiment Matrix",
-                pos_threshold=pos_threshold,
-                neg_threshold=neg_threshold
-            )
-        )
-# -
-
-
-
-
-
-# +
-##########
-# Coherence je Modell/Sprache berechnen
-##########
-
-coherence_results = []
-
-for method_key, config in methods.items():
-    for lang, result in config["topics_by_lang"].items():
-
-        texts = tokenize_docs(result["documents"])
-
-        topics = get_topics_from_model(
-            model=result["model"],
-            feature_names=result["features"],
-            method_type=config["method_type"],
-            top_n=10
-        )
-
-        coherence_score = compute_pmi_coherence(
-            topics=topics,
-            texts=texts
-        )
-
-        coherence_results.append({
-            "method": method_key,
-            "title": config["title"],
-            "lang": lang,
-            "coherence": coherence_score
-        })
-
-        print(
-            f"{config['title']} ({lang}) "
-            f"Coherence: {coherence_score:.4f}"
-        )
-
-
-coherence_df = pd.DataFrame(coherence_results)
-
-
-# +
-def plot_top_words_from_methods(methods, method_key, lang, topic_id, n_words=10):
-    data = methods[method_key]["topics_by_lang"][lang]
-
-    model = data["model"]
-    features = data["features"]
-
-    weights = model.components_[topic_id]
-    top_idx = weights.argsort()[-n_words:][::-1]
-
-    words = [features[i] for i in top_idx]
-    values = [weights[i] for i in top_idx]
-
-    plt.figure(figsize=(8, 4))
-    plt.barh(words[::-1], values[::-1])
-    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic {topic_id + 1}')
-    plt.xlabel("Gewichtung")
-    plt.tight_layout()
-    plt.show()
-
-plot_top_words_from_methods(methods, "bow_lda", "de", topic_id=0)
-plot_top_words_from_methods(methods, "tfidf_lsa", "de", topic_id=0)
-# -
-
-
-
-# +
-def plot_topic_distribution_from_methods(methods, method_key, lang):
-    data = methods[method_key]["topics_by_lang"][lang]
-    doc_topic_matrix = data["doc_topic_matrix"]
-
-    if methods[method_key]["method_type"] == "lsa":
-        doc_topic_matrix = np.abs(doc_topic_matrix)
-
-    dominant_topics = doc_topic_matrix.argmax(axis=1)
-
-    counts = (
-        pd.Series(dominant_topics)
-        .value_counts()
-        .sort_index()
     )
 
-    plt.figure(figsize=(8, 4))
-    counts.plot(kind="bar")
-    plt.title(f'{methods[method_key]["title"]} ({lang}) - Topic Verteilung')
-    plt.xlabel("Topic")
-    plt.ylabel("Anzahl Dokumente")
-    plt.xticks(rotation=0)
-    plt.tight_layout()
-    plt.show()
 
-plot_topic_distribution_from_methods(methods, "tfidf_lsa", "de")
-plot_topic_distribution_from_methods(methods, "tfidf_lsa", "en")
+# +
+#display_selected_model_topic_terms(
+#    selected_models,
+#    weight_col="weight_pct"
+#)
+
+def show_reviews_for_topic(
+    doc_topics_sentiment,
+    lang,
+    topic_id,
+    sentiment_label=None,
+    n=10,
+    sort_by="topic_strength"
+):
+    df = doc_topics_sentiment[lang].copy()
+
+    df = df[df["dominant_topic"] == topic_id]
+
+    if sentiment_label is not None:
+        df = df[df["sentiment_label"] == sentiment_label]
+
+    df = df.sort_values(sort_by, ascending=False)
+
+    cols = [
+        "doc_id",
+        "dominant_topic",
+        "topic_strength",
+        "sentiment_score",
+        "sentiment_label"
+    ]
+
+    # Falls du suffixes beim Merge hast
+    if "document_topic" in df.columns:
+        cols.append("document_topic")
+    elif "document" in df.columns:
+        cols.append("document")
+
+    return df[cols].head(n)
+#doc_topics_sentiment["en"].head()
+#doc_topics_sentiment["de"].head()
+pd.set_option("display.max_colwidth", 1000)
+show_reviews_for_topic(
+    doc_topics_sentiment,
+    lang="en",
+    topic_id=1,
+    sentiment_label="negative",
+    n=10
+)
+# -
+
+# Zeigt die Anzahl Dokumente pro dominantem Topic
+# Erkenntnis:
+# - Sind Topics ausgewogen verteilt?
+# - Dominiert ein einzelnes Topic zu stark?
+# - Gibt es irrelevante Mini-Topics?
+plot_topic_sizes(doc_topics["en"])
+plot_topic_sizes(doc_topics["de"])
+
+# +
+# Zeigt durchschnittliches Sentiment pro Topic
+# Erkenntnis:
+# - Welche Themen sind positiv/negativ?
+# - Gibt es emotional stark geladene Topics?
+# - Wie unterscheiden sich Topics semantisch/emotional?
+plot_topic_sentiment(
+    topic_sentiment_summary["en"],
+    title="EN Topic Sentiment"
+)
+
+plot_topic_sentiment(
+    topic_sentiment_summary["de"],
+    title="DE Topic Sentiment"
+)
+
+
+# +
+
+def display_selected_model_topic_terms(selected_models, weight_col="weight_pct"):
+    """
+    Gibt die Top-Wörter pro Topic für manuell ausgewählte Modelle aus.
+    Funktioniert mit Struktur:
+    selected_models["de"]["row"]
+    selected_models["en"]["row"]
+    """
+
+    for lang, selection in selected_models.items():
+
+        row = selection["row"]
+        title = selection["title"]
+
+        score = row.get("overall_score", None)
+        n_topics = row.get("n_topics", len(row["topic_terms"]))
+
+        print(f"\n=== Ausgewähltes Topic-Modell ({lang}) ===")
+
+        if score is not None:
+            print(
+                f"\n--- {title} | "
+                f"Score: {score:.4f} | "
+                f"Topics: {n_topics} ---"
+            )
+        else:
+            print(
+                f"\n--- {title} | "
+                f"Topics: {n_topics} ---"
+            )
+
+        display(topic_terms_to_table(row, weight_col=weight_col))
+
+
+def build_sentiment_df(vector_data, lang="en"):
+    """
+    Erstellt Sentiment-Scores je Dokument.
+    Enthält doc_id für sauberen Merge mit Topic-Zuordnung.
+    """
+
+    analyzer = SentimentIntensityAnalyzer()
+
+    documents = vector_data["documents"]
+    records = []
+
+    for doc_id, doc in enumerate(documents):
+        scores = analyzer.polarity_scores(str(doc))
+        compound = scores["compound"]
+
+        pos_threshold = 0.5
+        neg_threshold = -0.5
+
+        if compound >= pos_threshold:
+            label = "positive"
+        elif compound <= neg_threshold:
+            label = "negative"
+        else:
+            label = "neutral"
+
+        records.append({
+            "doc_id": doc_id,
+            "document": doc,
+            "sentiment_score": compound,
+            "sentiment_label": label,
+            "sentiment_pos": scores["pos"],
+            "sentiment_neu": scores["neu"],
+            "sentiment_neg": scores["neg"]
+        })
+
+    return pd.DataFrame(records)
 
 
 # +
@@ -777,30 +673,167 @@ plot_topic_sentiment_from_summary(topic_sentiment_summary, "bow_lda", "de")
 
 
 # +
-def compare_methods_topic_distribution(methods, lang):
-    plt.figure(figsize=(10, 5))
+def topic_terms_to_table(row, weight_col="weight_pct"):
+    return pd.DataFrame({
+        topic: [
+            f'{item["word"]} ({item[weight_col]:.1f}%)'
+            for item in terms
+        ]
+        for topic, terms in row["topic_terms"].items()
+    })
 
-    for method_key, config in methods.items():
-        data = config["topics_by_lang"][lang]
-        doc_topic_matrix = data["doc_topic_matrix"]
+    return pd.DataFrame(records)
+def display_top_topic_models(tuning_interpreted_by_lang, model_name, top_k=3, weight_col="weight_pct"):
+    for lang, tuning_df in tuning_interpreted_by_lang.items():
 
-        if config["method_type"] == "lsa":
-            doc_topic_matrix = np.abs(doc_topic_matrix)
+        print(f"\n=== Top {top_k} {model_name} Modelle ({lang}) ===")
 
-        dominant_topics = doc_topic_matrix.argmax(axis=1)
-        counts = pd.Series(dominant_topics).value_counts().sort_index()
+        for rank, (idx, row) in enumerate(tuning_df.head(top_k).iterrows(), start=1):
+            print(
+                f"\n--- Rang {rank} | Index {idx} | "
+                f"Score: {row['overall_score']:.4f} | "
+                f"Topics: {row['n_topics']} ---"
+            )
 
-        plt.plot(counts.index, counts.values, marker="o", label=config["title"])
+            display(topic_terms_to_table(row, weight_col=weight_col))
 
-    plt.title(f"Methodenvergleich - Topic Verteilung ({lang})")
-    plt.xlabel("Topic")
-    plt.ylabel("Anzahl Dokumente")
-    plt.legend()
+
+def plot_topic_words(row, topic_id=1, top_n=10, title=None):
+    topic_key = f"Topic {topic_id}"
+    terms = row["topic_terms"][topic_key][:top_n]
+
+    words = [t["word"] for t in terms][::-1]
+    weights = [t["abs_weight"] for t in terms][::-1]
+
+    plt.figure(figsize=(8, 4))
+    plt.barh(words, weights)
+    plt.xlabel("Weight")
+    plt.title(title or f"{topic_key} - Top Words")
+    plt.tight_layout()
+    plt.show()
+    
+def plot_multiple_topics(row, topic_ids=None, top_n=10):
+    topic_terms = row["topic_terms"]
+
+    if topic_ids is None:
+        topic_ids = range(1, len(topic_terms) + 1)
+
+    for topic_id in topic_ids:
+        plot_topic_words(
+            row=row,
+            topic_id=topic_id,
+            top_n=top_n,
+            title=f"Topic {topic_id}"
+        )
+
+def plot_multiple_topics(row, topic_ids=None, top_n=10):
+    topic_terms = row["topic_terms"]
+
+    if topic_ids is None:
+        topic_ids = range(1, len(topic_terms) + 1)
+
+    for topic_id in topic_ids:
+        plot_topic_words(
+            row=row,
+            topic_id=topic_id,
+            top_n=top_n,
+            title=f"Topic {topic_id}"
+        )
+
+def plot_topic_term_heatmap(row, top_n=10, title="Topic-Term Heatmap"):
+    topic_terms = row["topic_terms"]
+
+    records = []
+
+    for topic, terms in topic_terms.items():
+        for term in terms[:top_n]:
+            records.append({
+                "topic": topic,
+                "word": term["word"],
+                "weight": term["abs_weight"]
+            })
+
+    df = pd.DataFrame(records)
+
+    heatmap_data = (
+        df.pivot_table(
+            index="word",
+            columns="topic",
+            values="weight",
+            fill_value=0
+        )
+    )
+
+    plt.figure(figsize=(12, max(5, len(heatmap_data) * 0.25)))
+    plt.imshow(heatmap_data, aspect="auto")
+    plt.xticks(range(len(heatmap_data.columns)), heatmap_data.columns, rotation=90)
+    plt.yticks(range(len(heatmap_data.index)), heatmap_data.index)
+    plt.colorbar(label="Weight")
+    plt.title(title)
     plt.tight_layout()
     plt.show()
 
-compare_methods_topic_distribution(methods, "de")
-compare_methods_topic_distribution(methods, "en")
-# -
+def compute_topic_overlap_matrix(row):
+    topics = {
+        topic: [item["word"] for item in terms]
+        for topic, terms in row["topic_terms"].items()
+    }
 
+    topic_names = list(topics.keys())
+    matrix = np.zeros((len(topic_names), len(topic_names)))
+
+    for i, topic_a in enumerate(topic_names):
+        for j, topic_b in enumerate(topic_names):
+            set_a = set(topics[topic_a])
+            set_b = set(topics[topic_b])
+
+            union = set_a | set_b
+            intersection = set_a & set_b
+
+            matrix[i, j] = len(intersection) / len(union) if union else 0
+
+    return pd.DataFrame(matrix, index=topic_names, columns=topic_names)
+
+def plot_topic_overlap_matrix(row, title="Topic Word Overlap Matrix"):
+    overlap_df = compute_topic_overlap_matrix(row)
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(overlap_df, aspect="auto")
+    plt.xticks(range(len(overlap_df.columns)), overlap_df.columns, rotation=90)
+    plt.yticks(range(len(overlap_df.index)), overlap_df.index)
+    plt.colorbar(label="Jaccard Overlap")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+def plot_topic_sizes(doc_topic_df, title="Topic Sizes"):
+    counts = (
+        doc_topic_df["dominant_topic"]
+        .value_counts()
+        .sort_index()
+    )
+
+    plt.figure(figsize=(8, 4))
+    plt.bar(counts.index.astype(str), counts.values)
+    plt.xlabel("Topic")
+    plt.ylabel("Documents")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+def plot_topic_sentiment(df, title="Topic Sentiment"):
+
+    ax = df.plot(
+        x="dominant_topic",
+        y="avg_sentiment",
+        kind="bar",
+        legend=False,
+        figsize=(12, 5)
+    )
+
+    ax.set_title(title)
+    ax.set_xlabel("Topic")
+    ax.set_ylabel("Average Sentiment")
+
+    plt.axhline(0, color="black", linewidth=1)
+
+    plt.show()
 
