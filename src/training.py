@@ -9,6 +9,36 @@ from tqdm import tqdm
 
 from sklearn.decomposition import LatentDirichletAllocation, TruncatedSVD
 
+def vectorize(Vectorizer, data_by_lang):
+    params = {
+        "ngram_range": (1, 2),
+        "min_df": 3,
+        "max_df": 0.8,
+        "dtype": np.float32,
+    }
+
+    results = {}
+
+    for lang, data in data_by_lang.items():
+        documents = data["documents"]
+
+        vectorizer = Vectorizer(**params)
+        matrix = vectorizer.fit_transform(documents)
+
+        results[lang] = {
+            "matrix": matrix,
+            "vectorizer": vectorizer,
+            "feature_names": vectorizer.get_feature_names_out(),
+            "documents": documents,
+            "sentences": data["sentences"],
+            "vocabulary": data["vocabulary"],
+            "index": data["index"]
+        }
+
+        print(f"{lang}: {matrix.shape[0]} Dokumente, {matrix.shape[1]} Features")
+
+    return results
+    
 def tune_lda_models(
     data,
     topic_grid,
@@ -344,33 +374,3 @@ def get_topic_terms_from_model(model, feature_names, method_type, top_n=10):
         ]
 
     return topic_terms
-    
-def evaluate_and_score_tuning_generic(
-    tuning_df,
-    score_metrics,
-    score_col="overall_score"
-):
-    df = tuning_df.copy()
-    score = 0
-
-    for metric in score_metrics:
-        col = metric["col"]
-        weight = metric["weight"]
-        higher_is_better = metric["higher_is_better"]
-
-        min_val = df[col].min()
-        max_val = df[col].max()
-
-        if max_val == min_val:
-            norm = 1
-        else:
-            norm = (df[col] - min_val) / (max_val - min_val)
-
-        if not higher_is_better:
-            norm = 1 - norm
-
-        score += weight * norm
-
-    df[score_col] = score
-
-    return df.sort_values(score_col, ascending=False)

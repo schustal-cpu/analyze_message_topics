@@ -182,6 +182,7 @@ Python 3.14.3
 Virtual environment (venv)
 
 See requirements.txt for full dependencies.
+
 ---
 
 ## Data Usage and Licensing
@@ -215,11 +216,7 @@ Key restrictions include:
 
 ### FragDenStaat Data
 
-This project uses data from the FragDenStaat platform:
-
-https://fragdenstaat.de/
-
-The usage of this data is subject to the FragDenStaat terms of use:
+This project uses data from the FragDenStaat platform.  The usage of this data is subject to the FragDenStaat terms of use:
 https://fragdenstaat.de/nutzungsbedingungen/
 
 Key considerations:

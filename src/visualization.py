@@ -2,6 +2,107 @@
 
 from collections import Counter
 import pandas as pd
+from src.styles import *
+
+def evaluate_and_score_tuning_generic(
+    tuning_df,
+    score_metrics,
+    score_col="overall_score"
+):
+    df = tuning_df.copy()
+    score = 0
+
+    for metric in score_metrics:
+        col = metric["col"]
+        weight = metric["weight"]
+        higher_is_better = metric["higher_is_better"]
+
+        min_val = df[col].min()
+        max_val = df[col].max()
+
+        if max_val == min_val:
+            norm = 1
+        else:
+            norm = (df[col] - min_val) / (max_val - min_val)
+
+        if not higher_is_better:
+            norm = 1 - norm
+
+        score += weight * norm
+
+    df[score_col] = score
+
+    return df.sort_values(score_col, ascending=False)
+    
+def display_tuning_results(results_by_lang, tuning_config, title, head_rows, hide_cols):
+    """
+    Evaluate, score, and display tuning results for multiple languages.
+
+    For each language-specific tuning DataFrame, this function:
+    1. Applies a generic scoring and evaluation based on the provided metrics
+    2. Stores the interpreted results in a dictionary
+    3. Prints a formatted section header
+    4. Displays a styled preview of the top results
+
+    Parameters
+    ----------
+    results_by_lang : dict
+        Dictionary mapping language codes (e.g. 'en', 'de') to tuning result DataFrames.
+
+    tuning_config : list of dict
+        Configuration describing evaluation metrics.
+        Each entry defines:
+            - column name
+            - weight
+            - optimization goal (higher/lower is better)
+            - quantiles for good/bad thresholds
+            - display format
+
+    title : str
+        Title used in the printed section header (e.g. "LDA/BoW Tuning").
+
+    head_rows : int
+        Number of top rows to display per language after scoring.
+
+    hide_cols : list of str
+        Columns to hide in the styled output display.
+
+    Returns
+    -------
+    dict
+        Dictionary with the same language keys as input, containing
+        evaluated and scored tuning DataFrames.
+    """
+
+    # Dictionary to store evaluated results per language
+    interpreted_by_lang = {}
+
+    # Iterate over each language and its corresponding tuning DataFrame
+    for lang, tuning_df_lang in results_by_lang.items():
+
+        # Apply scoring and evaluation logic using the provided configuration
+        tuning_interpreted = evaluate_and_score_tuning_generic(
+            tuning_df=tuning_df_lang,
+            score_metrics=tuning_config
+        )
+
+        # Store the evaluated results
+        interpreted_by_lang[lang] = tuning_interpreted
+
+        # Print section header for better readability in output
+        print(f"\n=== {title} ({lang}) ===")
+
+        # Display a styled preview of the top tuning results
+        display(
+            style_tuning_eval_generic(
+                tuning_interpreted.head(head_rows),  # limit number of displayed rows
+                style_metrics=tuning_config,
+                hide_cols=hide_cols
+            )
+        )
+
+    # Return all evaluated tuning results grouped by language
+    return interpreted_by_lang
 
 def analyze_tokens(data_by_lang, top_n=30):
     data = {}
@@ -24,12 +125,43 @@ def analyze_tokens(data_by_lang, top_n=30):
         caption=f"Top {top_n} Tokens (de vs en)"
     )
 
-def compare_top_tokens(data_topic, data_sentiment, top_n=30):
+from collections import Counter
+import pandas as pd
+from IPython.display import display
+
+
+def compare_top_tokens(data_topic, data_sentiment, top_n=30, show=True):
     """
-    Vergleich Topic vs Sentiment für DE und EN gleichzeitig
+    Compare the most frequent tokens for topic modeling and sentiment analysis
+    across German and English datasets.
+
+    The function computes token frequencies per language and task, builds a
+    structured comparison table, and optionally renders a styled display.
+
+    Parameters
+    ----------
+    data_topic : dict
+        Preprocessed topic modeling data (output from clean_and_tokenize).
+
+    data_sentiment : dict
+        Preprocessed sentiment analysis data.
+
+    top_n : int, optional (default=30)
+        Number of top tokens to compare.
+
+    show : bool, optional (default=True)
+        If True, the result is displayed using the styling function.
+
+    Returns
+    -------
+    pd.DataFrame
+        MultiIndex DataFrame comparing tokens and counts for:
+        - German vs English
+        - Topic vs Sentiment
     """
 
     def get_counts(data, lang):
+        """Extract most common tokens for a given language."""
         tokens = [
             word
             for sent in data[lang]["sentences"]
@@ -37,14 +169,14 @@ def compare_top_tokens(data_topic, data_sentiment, top_n=30):
         ]
         return Counter(tokens).most_common(top_n)
 
-    # Counts holen
+    # Compute token frequencies
     topic_de = get_counts(data_topic, "de")
     sent_de  = get_counts(data_sentiment, "de")
 
     topic_en = get_counts(data_topic, "en")
     sent_en  = get_counts(data_sentiment, "en")
 
-    # DataFrame bauen
+    # Build comparison DataFrame
     df = pd.DataFrame({
         ("de", "Topic", "Token"): [w for w, _ in topic_de],
         ("de", "Topic", "Count"): [c for _, c in topic_de],
@@ -58,6 +190,15 @@ def compare_top_tokens(data_topic, data_sentiment, top_n=30):
     })
 
     df.columns = pd.MultiIndex.from_tuples(df.columns)
+
+    # Optional display (keeps function reusable!)
+    if show:
+        display(
+            style_compare_top_tokens(
+                df,
+                caption=f"Top {top_n} Token Comparison (de/en)"
+            )
+        )
 
     return df
     

@@ -33,8 +33,13 @@ import matplotlib.pyplot as plt
 
 from src.styles import *
 from src.visualization import *
-from src.preprocessing import *
+
+from src.data_utils import remove_duplicate_texts, load_vader_words, load_gervader_words
+from src.preprocessing import run_preprocessing_loop
 from src.training import *
+from src.model_utils import *
+from src.evaluation import *
+
 
 # +
 ##########
@@ -93,74 +98,25 @@ dict_stopw_default = {
 # Data PreProcessing
 ##########
 
-top_n = 30       # Anzahl anzuzeigender TopWörter
-n_process = 1    # Anzahl paralleler Prozesse, Performace-Tunin
+top_n = 30       # Number of top tokens to display
+n_process = 1    # Number of parallel processes (performance tuning)
 
-while True:
-    # Stopwörter JSON laden oder neu erstellen
-    if os.path.exists(stopword_path) and os.path.getsize(stopword_path) > 0:
-        print("Stopwort-Datei gefunden -> wird eingelesen")
-        dict_stopw = load_stopw_from_json(stopword_path)
 
-        if "iter_0" not in dict_stopw:
-            dict_stopw["iter_0"] = dict_stopw_default["iter_0"]
-            write_stopw_to_json(dict_stopw, stopword_path)
+# Run interactive preprocessing pipeline:
+# - Loads or initializes stopword configuration (JSON)
+# - Applies iterative stopword refinement (user-guided)
+# - Cleans and tokenizes text for both topic modeling and sentiment analysis
+# - Displays top token comparisons for validation
+# - Repeats until user confirms final stopw
 
-    else:
-        print("Stopwort-Datei fehlt oder ist leer -> wird erstellt")
-        dict_stopw = dict_stopw_default
-        write_stopw_to_json(dict_stopw, stopword_path)
+data_topic, data_sentiment, dict_stopw = run_preprocessing_loop(
+    df_reviews=df_reviews,
+    stopword_path=stopword_path,
+    dict_stopw_default=dict_stopw_default,
+    top_n=top_n,
+    n_process=n_process
+)
 
-    # Stopwörter zusammenführen
-    stopwords_all = build_stopword_lists_from_iterations(dict_stopw)
-
-    stopw_topic_de, stopw_sent_de = stopwords_all["topic_de"], stopwords_all["sentiment_de"]
-    stopw_topic_en, stopw_sent_en = stopwords_all["topic_en"], stopwords_all["sentiment_en"]
-
-    # Cleaning Topic/ Sentiment Data
-    print("\nCleaning Data - Topic Modeling")
-    data_topic = clean_and_tokenize(df_reviews,stopw_de=stopw_topic_de,stopw_en=stopw_topic_en,n_process=n_process)
-
-    print("\nCleaning Data - Sentiment Analysis")
-    data_sentiment = clean_and_tokenize(df_reviews,stopw_de=stopw_sent_de,stopw_en=stopw_sent_en,n_process=n_process)
-
-    # Vergleichstabelle anzeigen
-    compare_top_tokens_table = compare_top_tokens(
-        data_topic,
-        data_sentiment,
-        top_n
-    )
-    print()
-    display(
-        style_compare_top_tokens(
-            compare_top_tokens_table,
-            caption=f"Vergleich Top {top_n} Token (de/en)"
-        )
-    )
-
-    current_iter = get_current_iteration_key(dict_stopw)
-    
-    print(
-        f"\nBitte Top Token prüfen und ggf. unter '{current_iter}' in {stopword_path} ergänzen."
-    )
-    print("1 = JSON ergänzt, nächste Iteration starten")
-    print("2 = fertig, weiter mit Topic Modeling")
-    
-    choice = input("Auswahl: ").strip()
-    
-    if choice == "1":
-        # JSON neu laden (mit deinen Ergänzungen)
-        dict_stopw = load_stopw_from_json(stopword_path)
-    
-        # nächste Iteration vorbereiten
-        add_iter_to_json(dict_stopw, stopword_path)
-    
-    elif choice == "2":
-        print("\nFinale Stopwörter übernommen. Weiter mit Topic Modeling.")
-        break
-    
-    else:
-        print("\nUngültige Eingabe. Bitte 1 oder 2 wählen.")
 
 
 # +
@@ -185,17 +141,62 @@ vectors_sentiment["tfidf_by_lang"] = vectorize(TfidfVectorizer, data_sentiment)
 # LDA/BoW - Model Tuning (en|de)
 ############
 
+# Perform LDA parameter tuning per language using Grid Search.
+# Explores multiple configurations to identify optimal topic models
+# for each language-specific dataset.
+
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+
+# Full parameter grid (production mode - slow but thorough)
+lda_config_prod = {
+    "topic_grid": [5, 10, 15, 20],   # number of topics to test
+    "alpha_grid": [0.01, 0.1],       # document-topic prior (sparsity control)
+    "eta_grid": [0.01, 0.1],         # topic-word prior
+    "max_iter_grid": [10, 20],       # number of training iterations
+    "random_states": [1, 2, 3],      # multiple runs for robustness
+    "learning_method": "batch",      # batch learning for stable convergence
+}
+
+# Minimal parameter grid (test mode - fast execution)
+lda_config_test = {
+    "topic_grid": [10],          # single topic value
+    "alpha_grid": [0.1],         # single prior
+    "eta_grid": [0.1],           # single prior
+    "max_iter_grid": [10],       # minimal iterations
+    "random_states": [1],        # single seed
+    "learning_method": "batch",
+}
+
+# -----------------------------
+# SWITCH BETWEEN MODES
+# -----------------------------
+
+TEST_MODE = True  # set to False for full tuning
+
+lda_config = lda_config_test if TEST_MODE else lda_config_prod
+
+
+# -----------------------------
+# RUN TUNING
+# -----------------------------
+
+# Dictionary to store tuning results separately for each language
 lda_tuning_results_by_lang = {}
 
+# Iterate over language-specific BOW vectorized datasets
 for lang, data in vectors_topic["bow_by_lang"].items():
+
+    # Apply selected configuration (test or production)
     lda_tuning_results_by_lang[lang] = tune_lda_models(
         data=data,
-        topic_grid=[5, 10, 15, 20],
-        alpha_grid=[0.01, 0.1],
-        eta_grid=[0.01, 0.1],
-        max_iter_grid=[10, 20],
-        random_states=[1, 2, 3],
-        learning_method="batch",
+        topic_grid=lda_config["topic_grid"],
+        alpha_grid=lda_config["alpha_grid"],
+        eta_grid=lda_config["eta_grid"],
+        max_iter_grid=lda_config["max_iter_grid"],
+        random_states=lda_config["random_states"],
+        learning_method=lda_config["learning_method"],
         lang=lang
     )
 
@@ -204,64 +205,67 @@ for lang, data in vectors_topic["bow_by_lang"].items():
 # LDA/BoW - Tuning Validation (en|de)
 ############
 
+# Define evaluation configuration for LDA tuning results.
+# Each metric includes:
+# - col: column name in the tuning results
+# - weight: contribution to overall score
+# - higher_is_better: optimization direction
+# - good_quantile / bad_quantile: thresholds for scoring normalization
+# - format: display formatting
 lda_tuning_config = [
     {"col": "coherence",               "weight": 0.30, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.2f}"},
     {"col": "coherence_std",           "weight": 0.10, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
-    
     {"col": "perplexity",              "weight": 0.20, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
-    #{"col": "perplexity_std",          "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
-    
     {"col": "largest_topic_share",     "weight": 0.15, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
-    #{"col": "largest_topic_share_std", "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"},
-    
     {"col": "avg_word_overlap",        "weight": 0.10, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
-    #{"col": "max_word_overlap",        "weight": 0.05, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.2f}"}
 ]
 
-lda_tuning_interpreted_by_lang = {}
+# Evaluate and display LDA tuning results per language:
+# - Computes weighted scores based on defined metrics
+# - Ranks models by overall performance
+# - Displays top configurations with formatted styling
+lda_tuning_interpreted_by_lang = display_tuning_results(
+    results_by_lang=lda_tuning_results_by_lang,
+    tuning_config=lda_tuning_config,
+    title="LDA/BoW Tuning",
+    head_rows=15,  # Limit output to top-performing configurations
+    hide_cols=[
+        # Hide non-relevant or heavy columns for display clarity
+        "topic_words", "topic_terms", "doc_topic_matrix", "model",
+        "max_word_overlap", "largest_topic_share_std", "perplexity_std"
+    ]
+)
 
-for lang, tuning_df_lang in lda_tuning_results_by_lang.items():
-
-    tuning_interpreted = evaluate_and_score_tuning_generic(
-        tuning_df=tuning_df_lang,
-        score_metrics=lda_tuning_config
-    )
-
-    lda_tuning_interpreted_by_lang[lang] = tuning_interpreted
-
-    print(f"\n=== LDA/BoW Tuning ({lang}) ===")
-
-    display(
-        style_tuning_eval_generic(
-            tuning_interpreted.head(15),  # ← hier begrenzen
-            style_metrics=lda_tuning_config,
-            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix", "model", "max_word_overlap", "largest_topic_share_std", "perplexity_std"]
-        )
-    )
 
 # +
 ############
 # LSA/TF-IDF - Model Tuning (en|de)
 ############
 
+# Perform parameter tuning for LSA (Latent Semantic Analysis)
+# on TF-IDF features, evaluated separately for each language.
+# The goal is to identify optimal semantic dimensionality and
+# stable decomposition settings.
+
+
+# Dictionary to store tuning results per language (e.g. 'en', 'de')
 lsa_tuning_results_by_lang = {}
 
+# Iterate over language-specific TF-IDF vectorized datasets
 for lang, data in vectors_topic["tfidf_by_lang"].items():
+
+    # Perform LSA model tuning using different hyperparameter combinations:
+    # - topic_grid: number of latent semantic components (topics)
+    #   higher values → finer topic separation, but harder interpretation
+    # - n_iter_grid: number of SVD iterations
+    #   more iterations → better convergence and stability, but slower runtime
+    # - random_state: fixed seed for reproducibility
+    # - lang: used for logging or progress tracking
     lsa_tuning_results_by_lang[lang] = tune_lsa_models(
         data=data,
-
-        # Anzahl semantischer Komponenten
-        # mehr = feinere Trennung, aber schwerer interpretierbar
         topic_grid=[10, 20, 30, 40],
-
-        # Iterationen der randomized SVD
-        # mehr = stabilere Approximation, aber langsamer
         n_iter_grid=[10, 20, 30],
-
-        # fixer Seed für reproduzierbare Ergebnisse
         random_state=42,
-
-        # nur für Progress/Logging
         lang=lang
     )
 
@@ -270,6 +274,13 @@ for lang, data in vectors_topic["tfidf_by_lang"].items():
 # LSA/TF-IDF - Tuning Validation (en|de)
 ############
 
+# Define evaluation configuration for LSA tuning results.
+# Each metric contributes to the final score using a weighted scheme:
+# - col: metric name in the tuning results DataFrame
+# - weight: importance of the metric in overall ranking
+# - higher_is_better: optimization direction
+# - good_quantile / bad_quantile: thresholds used for normalization/scoring
+# - format: display formatting for readability
 lsa_tuning_config = [
     {"col": "avg_word_overlap",     "weight": 0.16, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
     {"col": "coherence",            "weight": 0.42, "higher_is_better": True,  "good_quantile": 0.75, "bad_quantile": 0.25, "format": "{:.4f}"},
@@ -277,26 +288,20 @@ lsa_tuning_config = [
     {"col": "largest_topic_share",  "weight": 0.25, "higher_is_better": False, "good_quantile": 0.25, "bad_quantile": 0.75, "format": "{:.4f}"},
 ]
 
-lsa_tuning_interpreted_by_lang = {}
-
-for lang, tuning_df_lang in lsa_tuning_results_by_lang.items():
-
-    tuning_interpreted = evaluate_and_score_tuning_generic(
-        tuning_df=tuning_df_lang,
-        score_metrics=lsa_tuning_config
-    )
-
-    lsa_tuning_interpreted_by_lang[lang] = tuning_interpreted
-
-    print(f"\n=== LSA/TF-IDF Tuning ({lang}) ===")
-
-    display(
-        style_tuning_eval_generic(
-            tuning_interpreted.head(10),
-            style_metrics=lsa_tuning_config,
-            hide_cols=["topic_words", "topic_terms", "doc_topic_matrix", "model"]
-        )
-    )
+# Evaluate and display LSA tuning results for each language:
+# - Computes normalized and weighted scores based on the configuration
+# - Ranks model configurations by overall performance
+# - Displays the top results with formatted styling for comparison
+lsa_tuning_interpreted_by_lang = display_tuning_results(
+    results_by_lang=lsa_tuning_results_by_lang,
+    tuning_config=lsa_tuning_config,
+    title="LSA/TF-IDF Tuning",
+    head_rows=10,  # Limit output to top-performing configurations
+    hide_cols=[
+        # Hide large or non-essential columns to improve readability
+        "topic_words", "topic_terms", "doc_topic_matrix", "model"
+    ]
+)
 # -
 
 # Zeigt die wichtigsten Wörter je Topic
@@ -304,6 +309,7 @@ for lang, tuning_df_lang in lsa_tuning_results_by_lang.items():
 # - Sind Topics semantisch klar/interpretiertbar?
 # - Gibt es generische oder unscharfe Topics?
 # - Sind Topics redundant oder klar getrennt?
+best_row = lsa_tuning_interpreted_by_lang["en"].iloc[3]
 plot_multiple_topics(best_row)
 
 # Zeigt Überschneidungen der Top-Wörter zwischen Topics
@@ -329,6 +335,125 @@ display_top_topic_models(
     model_name="LDA/BoW",
     top_k=3
 )
+
+# +
+############
+# FINAL TOPIC + SENTIMENT PIPELINE
+# Separate Vector Spaces:
+# - Topic Modeling: captures semantic structure of documents
+# - Sentiment Analysis: captures emotional polarity independently
+############
+
+# 1. Manually Select Final Models
+# Select best-performing configurations based on prior evaluation.
+# Each selection defines:
+# - modeling approach (LDA or LSA)
+# - chosen parameter configuration (row)
+# - corresponding vector spaces for topic and sentiment analysis
+selected_models = {
+
+    "de": {
+        "method": "lda",
+        "title": "LDA BoW (de)",
+
+        # Top-ranked model from LDA tuning results
+        "row": lda_tuning_interpreted_by_lang["de"].iloc[0],
+
+        # Use Bag-of-Words representation for both tasks
+        "vector_topic": vectors_topic["bow_by_lang"]["de"],
+        "vector_sentiment": vectors_sentiment["bow_by_lang"]["de"],
+    },
+
+    "en": {
+        "method": "lsa",
+        "title": "LSA TFIDF (en)",
+
+        # Manually selected model (not necessarily top-ranked)
+        "row": lsa_tuning_interpreted_by_lang["en"].iloc[3],
+
+        # Use TF-IDF representation for both tasks
+        "vector_topic": vectors_topic["tfidf_by_lang"]["en"],
+        "vector_sentiment": vectors_sentiment["tfidf_by_lang"]["en"],
+    }
+}
+
+# 2. Extract Final Topic Models
+# Retrieve model components (topic terms, document-topic matrix, features)
+# for the selected configurations
+fitted_models = {}
+
+for lang, selection in selected_models.items():
+    fitted_models[lang] = get_selected_topic_model(selection)
+
+# 3. Determine Dominant Topic per Document
+# For each document:
+# - Identify the most relevant (dominant) topic
+# - Compute topic strength
+doc_topics = {}
+
+for lang, selection in selected_models.items():
+
+    result = get_selected_topic_model(selection)
+
+    doc_topics[lang] = compute_dominant_topics(
+        doc_topic_matrix=result["doc_topic_matrix"],
+        documents=result["documents"],
+        method=selection["method"]
+    )
+
+# 4. Sentiment Analysis
+# Compute sentiment score and label (positive / neutral / negative)
+# for each document, independent of topic modeling
+sentiments = {}
+
+for lang, selection in selected_models.items():
+
+    sentiments[lang] = build_sentiment_df(
+        selection["vector_sentiment"],
+        lang=lang
+    )
+
+# 5. Merge Topic + Sentiment
+# Combine topic assignments with sentiment results
+# to associate each document with both semantic and emotional information
+doc_topics_sentiment = {}
+
+for lang in doc_topics.keys():
+
+    doc_topics_sentiment[lang] = merge_topic_sentiment(
+        doc_topics[lang],
+        sentiments[lang]
+    )
+
+# 6. Aggregate Topic + Sentiment Matrix
+# Compute aggregated statistics per topic:
+# - number of documents
+# - average topic strength
+# - average sentiment score
+# - distribution of sentiment labels
+topic_sentiment_summary = {}
+
+for lang, df in doc_topics_sentiment.items():
+
+    topic_sentiment_summary[lang] = build_topic_sentiment_summary(df)
+
+
+# 7. Display Final Topic + Sentiment Matrices
+
+for lang, summary_df in topic_sentiment_summary.items():
+
+    selection = selected_models[lang]
+
+    print(f"\n=== Topic + Sentiment Vergleich ({lang}) ===")
+
+    display(
+        style_topic_sentiment(
+            summary_df,
+            f"{selection['title']} - Topic & Sentiment Matrix",
+            pos_threshold=0.1,
+            neg_threshold=-0.1
+        )
+    )
 
 # +
 ############
@@ -836,4 +961,7 @@ def plot_topic_sentiment(df, title="Topic Sentiment"):
     plt.axhline(0, color="black", linewidth=1)
 
     plt.show()
+
+# -
+
 
