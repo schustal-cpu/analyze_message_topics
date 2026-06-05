@@ -5,20 +5,9 @@ The pipeline supports both German and English text and works across formal compl
 
 ---
 
-## Motivation
-
-The goal of this project is to identify the most relevant topics in textual data and assess whether they are discussed positively or negatively.
-
-The system is designed to:
-- work with different types of input (formal requests and social media)
-- support multilingual text (German and English)
-- enable structured analysis of unstructured data
-- test if LDA or LSA works best for the selected data
-
----
-
 ## Features
 
+- structured analysis of unstructured data with diffenrent types ( formal request and social media )
 - Topic extraction using LDA and LSA
 - Sentiment analysis using VADER and GerVADER
 - Multilingual support (German and English)
@@ -31,7 +20,7 @@ The system is designed to:
 ## Project Structure
 ```
 analyze_message_topics/
-│── data/                  # Generated and raw datasets (excluded via .gitignore)
+│── data/                  # Generated and raw datasets (excluded via .gitignore), stopwords
 │── src/                   # Core processing modules
 │   ├── analyzer.py
 │   ├── preprocessing.py
@@ -39,7 +28,7 @@ analyze_message_topics/
 │   ├── visualization.py
 │   └── styles.py
 │── get_data.py            # Data collection & preparation
-│── analyze_data.py        # Main analysis pipeline
+│── analyze_data.ipynb     # Main analysis pipeline
 │── requirements.txt
 │── README.md
 ```
@@ -64,17 +53,16 @@ The project uses two different datasets:
 
 The script get_data.py performs the following steps:
 
-- Downloads or loads raw data
+- Downloads or loads raw data from "fragdenstaat.de"
+- Imports Yelp dataset from data/yelp_academic_dataset_review.json
 - Extracts relevant fields
 - Limits dataset to 1000 entries per source
 - Creates a unified CSV file with the structure:
 
-
-origin, id, created, review
-Yelp/FragDenStaat, int, timestamp, text
-
-Output is stored in:
-data/combined_reviews.csv
+data/combined_reviews.csv	# exluded for dataprotection by .gitignore
+| origin | id | created | review |
+|--- | --- | --- | --- |
+| Yelp/FragDenStaat | int | timestamp | text |
 
 ---
 
@@ -108,7 +96,20 @@ The analysis pipeline (analyze_data.py) includes the following steps:
 
 ---
 
-## Installation
+## Module Overview
+
+| Name                     | Description                                                                 |
+|--------------------------|------------------------------------------------------------------------------|
+| `get_data.py`             | Handles data collection and transformation into CSV format                  |
+| `analyze_data.py`         | Executes the full analysis pipeline                                         |
+| `src/preprocessing.py`    | Contains text preprocessing logic. TODO: list main functions                 |
+| `src/analyzer.py`         | Handles sentiment classification and topic assignment. TODO: clarify responsibilities |
+| `src/training.py`         | Trains LDA and LSA models. TODO: specify parameters / configs                |
+| `src/visualization.py`    | Responsible for visual outputs. TODO: describe generated plots               |
+
+---
+
+## Install
 
 Create a virtual environment and install dependencies:
 
@@ -124,35 +125,38 @@ Install requirements:
 pip install -r requirements.txt
 ```
 
-Usage
+## Usage
+Download Yelp Dataset
+```Poweshell
+(PS) Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip .\Yelp-JSON.zip
+```
+```cmd
+(CMD) tar -xf .\Yelp-JSON.zip
+(CMD) tar -xf .\Yelp-JSON\Yelp-JSON\yelp_dataset.tar
+(CMD) cp .\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json analyze_message_topics/data/
+```
+
 Run the pipeline in the following order:
 1. Generate dataset
 ```bash
 .\python get_data.py
 ```
-2. Run analysis
+2. Run analysis in Jupyter Notebook
 ```bash
 .\python analyze_data.py
 ```
-Output
+## Output
 The analysis produces:
 
 Extracted topics (grouped by sentiment)
 Top words per topic
 Comparison of LDA and LSA results
 
+--- 
+
+## Interpretation
+
 TODO: add example output (topics, keywords, scores, or plots)
-
-## Module Overview
-
-| Name                     | Description                                                                 |
-|--------------------------|------------------------------------------------------------------------------|
-| `get_data.py`             | Handles data collection and transformation into CSV format                  |
-| `analyze_data.py`         | Executes the full analysis pipeline                                         |
-| `src/preprocessing.py`    | Contains text preprocessing logic. TODO: list main functions                 |
-| `src/analyzer.py`         | Handles sentiment classification and topic assignment. TODO: clarify responsibilities |
-| `src/training.py`         | Trains LDA and LSA models. TODO: specify parameters / configs                |
-| `src/visualization.py`    | Responsible for visual outputs. TODO: describe generated plots               |
 
 
 ## Notes and Limitations
