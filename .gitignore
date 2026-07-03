@@ -6,6 +6,7 @@ GerVADER/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+get_data.ipynb
 
 # Cache Files
 src/__pycache__/*
