@@ -1,13 +1,15 @@
 # analyze_message_topics
 
 A project for extracting and analyzing dominant topics and their sentiment (positive/negative) from unstructured text data.  
-The pipeline supports both German and English text and works across formal complaints and social media messages.
+The pipeline supports both German and English text and works across formal complaints and social media messages. 
+
+It evaluates multiple topic modeling approaches—including LDA and LSA combined with Bag-of-Words (BoW) and TF-IDF vectorization—to identify the model configuration that best fits a given text corpus. Model selection is based on quantitative evaluation metrics as well as qualitative inspection of the resulting topics.
 
 ---
 
 ## Features
 
-- structured analysis of unstructured data with diffenrent types ( formal request and social media )
+- structured analysis of unstructured data with different types ( formal request and social media )
 - Topic extraction using LDA and LSA
 - Sentiment analysis using VADER and GerVADER
 - Multilingual support (German and English)
@@ -145,13 +147,24 @@ Run the pipeline in the following order:
 
 --- 
 ## Output Interpretation
-The analysis produces:
 
-- Extracted topics (grouped by sentiment)
-- Top words per topic
-- Comparison of LDA and LSA results
+The analysis generates several outputs that support model selection and topic interpretation.
 
-TODO: add example output (topics, keywords, scores, or plots)
+- **Preprocessing comparison:** Displays the most frequent tokens used for topic modeling and sentiment analysis after each preprocessing iteration. This helps identify domain-specific stopwords that should be removed before continuing.
+
+- **Topic model evaluation:** Tables summarize the performance of all tested parameter combinations using metrics such as coherence, topic balance, word overlap, and (for LDA) perplexity. An aggregated overall score ranks the candidate models.
+
+- **Topic summaries:** For the best-performing models, each topic is represented by its highest-weighted keywords. These keywords provide a semantic description of the underlying topic.
+
+- **Topic comparison:** Side-by-side comparison of LDA and LSA topics enables qualitative assessment of how consistently both methods identify thematic structures.
+
+- **Topic distribution:** Bar charts show the number of documents assigned to each topic. Strongly imbalanced distributions may indicate suboptimal model parameters.
+
+- **Topic overlap:** Heatmaps visualize the overlap of keywords between topics. Low overlap generally indicates better topic separation.
+
+- **Topic sentiment analysis:** After merging topic assignments with sentiment scores, summary tables and plots show the average sentiment and sentiment distribution for each topic, allowing thematic and emotional interpretation.
+
+- **Representative documents:** For every topic, the most representative documents can be inspected together with their topic strength and sentiment label to validate the interpretation of the discovered topics.
 
 
 ## Notes and Limitations
