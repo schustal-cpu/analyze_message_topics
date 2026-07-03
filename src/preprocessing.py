@@ -2,7 +2,6 @@
 
 import os
 import json
-import numpy as np
 
 import spacy  # NLP pipeline for tokenization and lemmatization
 from tqdm import tqdm  # Progress bar for long-running operations

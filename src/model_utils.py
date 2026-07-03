@@ -3,55 +3,44 @@
 import numpy as np
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from GerVADER.vaderSentimentGER import SentimentIntensityAnalyzer as GerSentimentIntensityAnalyzer
 
-def build_sentiment_df(model_result, lang, pos=0.05, neg=-0.05):
+def build_sentiment_df(vector_data, lang="en"):
     """
-    Berechnet Sentiment Score + Label pro Dokument.
-
-    Parameter:
-        model_result: enthält 'documents'
-        lang: 'de' oder 'en'
-        pos/neg: Schwellenwerte für Klassifikation
-
-    Rückgabe:
-        DataFrame mit:
-        - document
-        - sentiment_score
-        - sentiment_label
+    Erstellt Sentiment-Scores je Dokument.
+    Enthält doc_id für sauberen Merge mit Topic-Zuordnung.
     """
 
-    analyzer_en = SentimentIntensityAnalyzer()
-    analyzer_de = GerSentimentIntensityAnalyzer()
-    
-    documents = model_result["documents"]
+    analyzer = SentimentIntensityAnalyzer()
 
-    # richtigen Analyzer wählen
-    if lang == "en":
-        analyzer = analyzer_en
-    elif lang == "de":
-        analyzer = analyzer_de
-    else:
-        raise ValueError("Unsupported language")
+    documents = vector_data["documents"]
+    records = []
 
-    # Scores berechnen
-    scores = [
-        analyzer.polarity_scores(doc)["compound"]
-        for doc in documents
-    ]
+    for doc_id, doc in enumerate(documents):
+        scores = analyzer.polarity_scores(str(doc))
+        compound = scores["compound"]
 
-    # DataFrame erstellen
-    df = pd.DataFrame({
-        "document": documents,
-        "sentiment_score": scores
-    })
+        pos_threshold = 0.5
+        neg_threshold = -0.5
 
-    # Label direkt inline
-    df["sentiment_label"] = df["sentiment_score"].apply(
-        lambda s: "positive" if s >= pos else "negative" if s <= neg else "neutral"
-    )
+        if compound >= pos_threshold:
+            label = "positive"
+        elif compound <= neg_threshold:
+            label = "negative"
+        else:
+            label = "neutral"
 
-    return df
+        records.append({
+            "doc_id": doc_id,
+            "document": doc,
+            "sentiment_score": compound,
+            "sentiment_label": label,
+            "sentiment_pos": scores["pos"],
+            "sentiment_neu": scores["neu"],
+            "sentiment_neg": scores["neg"]
+        })
 
+    return pd.DataFrame(records)
 
 def get_selected_topic_model(selection):
     """

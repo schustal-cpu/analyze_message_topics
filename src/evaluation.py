@@ -1,8 +1,5 @@
 # src/evaluation.py
 
-import pandas as pd
-
-
 def merge_topic_sentiment(topic_df, sentiment_df):
     """
     Merge topic assignments with sentiment results.
@@ -62,3 +59,4 @@ def build_topic_sentiment_summary(df):
         )
         .reset_index()
     )
+

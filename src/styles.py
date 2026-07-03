@@ -1,7 +1,5 @@
 # src/visualization.py
 
-import pandas as pd
-
 def base_table_style(df, caption):
     styles = [
         {
@@ -62,10 +60,6 @@ def style_topic_sentiment(
     )
 
     return styled
-
-
-def style_topic_comparison(df, caption):
-    return base_table_style(df, caption)
 
 
 def style_compare_top_tokens(df, caption):

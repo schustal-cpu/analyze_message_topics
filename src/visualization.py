@@ -1,8 +1,17 @@
 #### Analyse Funktionen #######
 
 from collections import Counter
+
+import numpy as np
 import pandas as pd
-from src.styles import *
+import matplotlib.pyplot as plt
+
+from IPython.display import display
+
+from src.styles import (
+    style_tuning_eval_generic,
+    style_compare_top_tokens,
+)
 
 def evaluate_and_score_tuning_generic(
     tuning_df,
@@ -104,32 +113,6 @@ def display_tuning_results(results_by_lang, tuning_config, title, head_rows, hid
     # Return all evaluated tuning results grouped by language
     return interpreted_by_lang
 
-def analyze_tokens(data_by_lang, top_n=30):
-    data = {}
-
-    for lang in ["de", "en"]:
-        sentences = data_by_lang[lang]["sentences"]
-        tokens = [word for sent in sentences for word in sent]
-        counts = Counter(tokens).most_common(top_n)
-
-        data[(lang, "Token")] = [w for w, _ in counts]
-        data[(lang, "Count")] = [c for _, c in counts]
-
-    df = pd.DataFrame(data)
-    df.columns = pd.MultiIndex.from_tuples(df.columns)
-
-    return style_token_table(
-        df,
-        split_after_col=1,
-        count_cols=[("de", "Count"), ("en", "Count")],
-        caption=f"Top {top_n} Tokens (de vs en)"
-    )
-
-from collections import Counter
-import pandas as pd
-from IPython.display import display
-
-
 def compare_top_tokens(data_topic, data_sentiment, top_n=30, show=True):
     """
     Compare the most frequent tokens for topic modeling and sentiment analysis
@@ -201,83 +184,6 @@ def compare_top_tokens(data_topic, data_sentiment, top_n=30, show=True):
         )
 
     return df
-    
-def print_lda_topics(model, feature_names, n_top_words=10):
-    """
-    Gibt die wichtigsten Wörter je Topic aus.
-    """
-    for topic_idx, topic in enumerate(model.components_):
-        top_indices = topic.argsort()[:-n_top_words - 1:-1]
-        top_words = [feature_names[i] for i in top_indices]
-
-        print(f"\nTopic {topic_idx + 1}:")
-        print(", ".join(top_words))
-
-def topics_matrix(model, feature_names, n_top_words=10, prefix="Topic"):
-    """
-    Erstellt eine Topic-Tabelle für ein einzelnes Modell.
-    Spalten: Topic1, Topic2, ...
-    Zeilen: Top-Wörter
-    """
-    topics = {}
-
-    for i, topic in enumerate(model.components_):
-        top_idx = topic.argsort()[-n_top_words:][::-1]
-        topics[f"{prefix}{i+1}"] = [feature_names[j] for j in top_idx]
-
-    return pd.DataFrame(topics)
-
-
-def compare_topic_models_multiindex(models, n_top_words=10):
-    first_model = next(iter(models.values()))["model"]
-    n_topics = first_model.components_.shape[0]
-
-    data = {}
-
-    for topic_idx in range(n_topics):
-        for method_name, d in models.items():
-            topic = d["model"].components_[topic_idx]
-            features = d["features"]
-
-            top_idx = topic.argsort()[-n_top_words:][::-1]
-            words = [features[i] for i in top_idx]
-
-            data[(f"Topic {topic_idx+1}", method_name)] = words
-
-    return pd.DataFrame(data)
-
-def build_topic_comparison_tables(doc_topics, methods, lang):
-    
-    def to_word_list(words):
-        if isinstance(words, list):
-            return words
-        return [w.strip() for w in str(words).split(",")]
-
-    rows = []
-
-    for method_key, lang_results in doc_topics.items():
-        df = lang_results[lang]
-        title = methods[method_key]["title"]
-
-        # Topic → Keywords (ein Eintrag pro Topic)
-        topic_map = (
-            df.groupby("dominant_topic")["topic_keywords"]
-            .first()
-            .sort_index()
-            .apply(to_word_list)
-        )
-
-        max_len = max(len(words) for words in topic_map)
-
-        for i in range(max_len):
-            row = {"Method": title if i == 0 else ""}
-
-            for topic_id, words in topic_map.items():
-                row[f"Topic {topic_id + 1}"] = words[i] if i < len(words) else ""
-
-            rows.append(row)
-
-    return pd.DataFrame(rows)
 
 def print_tuning_legend():
     print("\n=== Legende zur Parameterbewertung ===\n")
@@ -361,3 +267,257 @@ def print_overall_score_info():
     print("Hinweis:")
     print("   Der Score ist eine Orientierungshilfe.")
     print("   Die inhaltliche Interpretation der Topics bleibt entscheidend.\n")
+
+
+
+def topic_terms_to_table(row, weight_col="weight_pct"):
+    return pd.DataFrame({
+        topic: [
+            f'{item["word"]} ({item[weight_col]:.1f}%)'
+            for item in terms
+        ]
+        for topic, terms in row["topic_terms"].items()
+    })
+
+    return pd.DataFrame(records)
+def display_topic_model_summary(tuning_interpreted_by_lang, model_name, top_k=3, weight_col="weight_pct"):
+    for lang, tuning_df in tuning_interpreted_by_lang.items():
+
+        print(f"\n=== Top {top_k} {model_name} Modelle ({lang}) ===")
+
+        for rank, (idx, row) in enumerate(tuning_df.head(top_k).iterrows(), start=1):
+            print(
+                f"\n--- Rang {rank} | Index {idx} | "
+                f"Score: {row['overall_score']:.4f} | "
+                f"Topics: {row['n_topics']} ---"
+            )
+
+            display(topic_terms_to_table(row, weight_col=weight_col))
+
+
+
+def plot_topic_words(data, topic_ids=None, top_n=10):
+    if isinstance(data, pd.Series):
+        data = data.to_frame().T
+
+    for model_idx, row in data.iterrows():
+
+        topic_terms = row["topic_terms"]
+        n_topics = row.get("n_topics", len(topic_terms))
+        score = row.get("score", row.get("overall_score", None))
+
+        score_text = (
+            f" | Score: {score:.4f}"
+            if score is not None
+            else ""
+        )
+
+        print(
+            f"\n=== Model idx {model_idx} | "
+            f"{n_topics} Topics"
+            f"{score_text} ==="
+        )
+
+        if topic_ids is None:
+            topics = range(1, len(topic_terms) + 1)
+        else:
+            topics = topic_ids
+
+        for topic_id in topics:
+            topic_key = f"Topic {topic_id}"
+
+            if topic_key not in topic_terms:
+                print(f"Skipping {topic_key}: not found.")
+                continue
+
+            terms = topic_terms[topic_key][:top_n]
+
+            words = [t["word"] for t in terms][::-1]
+            weights = [t["abs_weight"] for t in terms][::-1]
+
+            plt.figure(figsize=(8, 4))
+            plt.barh(words, weights)
+            plt.xlabel("Weight")
+            plt.title(f"Model idx {model_idx} - {topic_key}")
+            plt.tight_layout()
+            plt.show()
+        
+def compare_topic_sizes(results_df, method="lsa", title=None):
+
+    if title is not None:
+        print(title)
+
+    tables = []
+
+    for idx, row in results_df.iterrows():
+        matrix = row["doc_topic_matrix"]
+
+        dominant = (
+            matrix.argmax(axis=1)
+            if method == "lda"
+            else np.abs(matrix).argmax(axis=1)
+        )
+
+        counts = (
+            pd.Series(dominant)
+            .value_counts()
+            .sort_index()
+            .rename(f"Docs (Model {idx})")
+        )
+
+        tables.append(counts)
+
+    return (
+        pd.concat(tables, axis=1)
+        .fillna(0)
+        .astype(int)
+        .rename_axis("Topic")
+        .reset_index()
+    )
+    
+
+def compute_topic_overlap_matrix(row):
+    topics = {
+        topic: [item["word"] for item in terms]
+        for topic, terms in row["topic_terms"].items()
+    }
+
+    topic_names = list(topics.keys())
+    matrix = np.zeros((len(topic_names), len(topic_names)))
+
+    for i, topic_a in enumerate(topic_names):
+        for j, topic_b in enumerate(topic_names):
+            set_a = set(topics[topic_a])
+            set_b = set(topics[topic_b])
+
+            union = set_a | set_b
+            intersection = set_a & set_b
+
+            matrix[i, j] = len(intersection) / len(union) if union else 0
+
+    return pd.DataFrame(matrix, index=topic_names, columns=topic_names)
+
+def plot_topic_overlap_matrix(data, title="Topic Word Overlap Matrix"):
+    """
+    Plots the topic overlap heatmap for one or multiple models.
+
+    Parameters
+    ----------
+    data : pandas.Series or pandas.DataFrame
+        Single model (row) or multiple models.
+    title : str
+        Base title for the plot(s).
+    """
+
+    # Einzelnes Modell
+    if isinstance(data, pd.Series):
+        data = data.to_frame().T
+
+    # Mehrere Modelle
+    for idx, row in data.iterrows():
+        overlap_df = compute_topic_overlap_matrix(row)
+
+        plt.figure(figsize=(8, 6))
+        plt.imshow(overlap_df, aspect="auto")
+        plt.xticks(range(len(overlap_df.columns)), overlap_df.columns, rotation=90)
+        plt.yticks(range(len(overlap_df.index)), overlap_df.index)
+        plt.colorbar(label="Jaccard Overlap")
+
+        model_title = (
+            f"{title} (idx {idx}, {row['n_topics']} Topics)"
+            if "n_topics" in row
+            else f"{title} (idx {idx})"
+        )
+
+        plt.title(model_title)
+        plt.tight_layout()
+        plt.show()
+
+
+def plot_topic_sizes(
+    doc_topic_df=None,
+    doc_topic_matrix=None,
+    method="lda",
+    title="Topic Sizes"
+):
+    if doc_topic_df is None:
+
+        if method == "lda":
+            dominant = doc_topic_matrix.argmax(axis=1)
+        elif method == "lsa":
+            dominant = np.abs(doc_topic_matrix).argmax(axis=1)
+        else:
+            raise ValueError("method must be 'lda' or 'lsa'")
+
+        counts = (
+            pd.Series(dominant)
+            .value_counts()
+            .sort_index()
+        )
+
+    else:
+        counts = (
+            doc_topic_df["dominant_topic"]
+            .value_counts()
+            .sort_index()
+        )
+
+    plt.figure(figsize=(8, 4))
+    plt.bar(counts.index.astype(str), counts.values)
+    plt.xlabel("Topic")
+    plt.ylabel("Documents")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
+    
+def plot_topic_sentiment(df, title="Topic Sentiment"):
+
+    ax = df.plot(
+        x="dominant_topic",
+        y="avg_sentiment",
+        kind="bar",
+        legend=False,
+        figsize=(12, 5)
+    )
+
+    ax.set_title(title)
+    ax.set_xlabel("Topic")
+    ax.set_ylabel("Average Sentiment")
+
+    plt.axhline(0, color="black", linewidth=1)
+
+    plt.show()
+
+def show_reviews_for_topic(
+    doc_topics_sentiment,
+    lang,
+    topic_id,
+    sentiment_label=None,
+    n=10,
+    sort_by="topic_strength"
+):
+    df = doc_topics_sentiment[lang].copy()
+
+    df = df[df["dominant_topic"] == topic_id]
+
+    if sentiment_label is not None:
+        df = df[df["sentiment_label"] == sentiment_label]
+
+    df = df.sort_values(sort_by, ascending=False)
+
+    cols = [
+        "doc_id",
+        "dominant_topic",
+        "topic_strength",
+        "sentiment_score",
+        "sentiment_label"
+    ]
+
+    # Falls du suffixes beim Merge hast
+    if "document_topic" in df.columns:
+        cols.append("document_topic")
+    elif "document" in df.columns:
+        cols.append("document")
+
+    return df[cols].head(n)
+    

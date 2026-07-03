@@ -1,8 +1,5 @@
 # src/data_utils.py
 
-import pandas as pd
-
-
 def load_gervader_words(filepath, threshold):
     """
     Load words from the GerVADER lexicon based on a sentiment threshold.
