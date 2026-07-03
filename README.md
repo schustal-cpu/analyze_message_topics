@@ -22,9 +22,9 @@ The pipeline supports both German and English text and works across formal compl
 analyze_message_topics/
 │── data/                  # Generated and raw datasets (excluded via .gitignore), stopwords
 │── src/                   # Core processing modules
-│   ├── analyzer.py
+│   ├── data_utils.py
 │   ├── preprocessing.py
-│   ├── training.py
+│   ├── model_utils.py
 │   ├── visualization.py
 │   └── styles.py
 │── get_data.py            # Data collection & preparation
@@ -101,11 +101,11 @@ The analysis pipeline (analyze_data.py) includes the following steps:
 | Name                     | Description                                                                 |
 |--------------------------|------------------------------------------------------------------------------|
 | `get_data.py`             | Handles data collection and transformation into CSV format                  |
-| `analyze_data.py`         | Executes the full analysis pipeline                                         |
-| `src/preprocessing.py`    | Contains text preprocessing logic. TODO: list main functions                 |
-| `src/analyzer.py`         | Handles sentiment classification and topic assignment. TODO: clarify responsibilities |
-| `src/training.py`         | Trains LDA and LSA models. TODO: specify parameters / configs                |
-| `src/visualization.py`    | Responsible for visual outputs. TODO: describe generated plots               |
+| `analyze_data.ipynb`      | Executes the full analysis pipeline                                         |
+| `src/data_utils.py`       | Functions for importing cleaning neccessary data                             |
+| `src/preprocessing.py`    | Contains text preprocessing logic and an interactive stopword selection loop |
+| `src/model_utils.py`      | Trains LDA and LSA models.              |
+| `src/visualization.py`    | Responsible for visual outputs.                                               |
 
 ---
 
@@ -165,15 +165,6 @@ The following files are excluded via .gitignore:
 - Raw datasets
 - Generated CSV data
 - External sentiment resources (GerVADER)
-
-
-### Possible Improvements
-TODO:
-
-Improve evaluation strategy for topics
-Add automated metrics (coherence score, perplexity)
-Extend multilingual support
-Integrate advanced models
 
 
 ### Requirements
