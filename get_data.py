@@ -84,21 +84,37 @@ def fetch_fsd_entries(url, num_entries, state=None, excluded_campaigns=None):
     results = []
 
     params = {
-        "limit": 50 
+        "limit": 50
     }
 
-    # robust: None → leeres Set
     excluded_campaigns = set(excluded_campaigns or [])
 
     if state:
         params["jurisdiction"] = state
 
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/138.0 Safari/537.36"
+        )
+    })
+
     print(f"Starte Download von bis zu {num_entries} Einträgen...")
 
     while url:
-        r = requests.get(url, params=params)
-        if r.status_code != 200:
-            print(f"API Fehler {r.status_code} bei URL: {url}")
+        try:
+            r = session.get(
+                url,
+                params=params,
+                timeout=30
+            )
+            r.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            print(f"Fehler beim Abruf von {url}")
+            print(e)
             break
 
         data = r.json()
@@ -111,7 +127,6 @@ def fetch_fsd_entries(url, num_entries, state=None, excluded_campaigns=None):
         for entry in objects:
             campaign = entry.get("campaign")
 
-            # funktioniert jetzt auch bei leerem excluded_campaigns
             if campaign not in excluded_campaigns:
                 results.append(entry)
 
@@ -121,13 +136,12 @@ def fetch_fsd_entries(url, num_entries, state=None, excluded_campaigns=None):
         url = data.get("meta", {}).get("next")
         params = None
 
-        print(f"Current Entries: {len(results)} -> going to Next page")
+        print(f"Current Entries: {len(results)} -> going to next page")
 
         time.sleep(0.2)
 
     print(f"{len(results[:num_entries])} Einträge heruntergeladen.")
     return results[:num_entries]
-
 def save_raw_json(data, json_path):
     """
     Saves the raw downloaded JSON list to disk.
