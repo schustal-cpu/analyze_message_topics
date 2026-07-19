@@ -444,7 +444,11 @@ def build_sentiment_df(vector_data, lang="en"):
     Enthält doc_id für sauberen Merge mit Topic-Zuordnung.
     """
 
-    analyzer = SentimentIntensityAnalyzer()
+    if lang == "en":
+        analyzer = SentimentIntensityAnalyzer()
+        
+    elif lang == "de":
+        analyzer = GerSentimentIntensityAnalyzer()
 
     documents = vector_data["documents"]
     records = []
