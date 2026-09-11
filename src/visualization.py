@@ -161,17 +161,19 @@ def compare_top_tokens(data_topic, data_sentiment, top_n=30, show=True):
 
     # Build comparison DataFrame
     df = pd.DataFrame({
-        ("de", "Topic", "Token"): [w for w, _ in topic_de],
-        ("de", "Topic", "Count"): [c for _, c in topic_de],
-        ("de", "Sentiment", "Token"): [w for w, _ in sent_de],
-        ("de", "Sentiment", "Count"): [c for _, c in sent_de],
-
-        ("en", "Topic", "Token"): [w for w, _ in topic_en],
-        ("en", "Topic", "Count"): [c for _, c in topic_en],
-        ("en", "Sentiment", "Token"): [w for w, _ in sent_en],
-        ("en", "Sentiment", "Count"): [c for _, c in sent_en],
+        ("de", "Topic", "Token"): pd.Series([w for w, _ in topic_de]),
+        ("de", "Topic", "Count"): pd.Series([c for _, c in topic_de]),
+    
+        ("de", "Sentiment", "Token"): pd.Series([w for w, _ in sent_de]),
+        ("de", "Sentiment", "Count"): pd.Series([c for _, c in sent_de]),
+    
+        ("en", "Topic", "Token"): pd.Series([w for w, _ in topic_en]),
+        ("en", "Topic", "Count"): pd.Series([c for _, c in topic_en]),
+    
+        ("en", "Sentiment", "Token"): pd.Series([w for w, _ in sent_en]),
+        ("en", "Sentiment", "Count"): pd.Series([c for _, c in sent_en]),
     })
-
+    
     df.columns = pd.MultiIndex.from_tuples(df.columns)
 
     # Optional display (keeps function reusable!)

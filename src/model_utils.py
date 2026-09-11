@@ -46,8 +46,8 @@ def tune_lda_models(
     topic_grid,
     alpha_grid,
     eta_grid,
-    max_iter_grid=(20,),
-    random_states=(42,),
+    max_iter_grid=(20),
+    random_states=(42),
     learning_method="batch",
     top_n=10,
     lang=None
