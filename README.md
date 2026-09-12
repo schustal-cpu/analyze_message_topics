@@ -94,7 +94,11 @@ The analysis pipeline (analyze_data.py) includes the following steps:
 
 ### 5. Evaluation
 - Comparison of LSA vs LDA results  
-- TODO: describe evaluation metric (e.g. coherence, manual review, etc.)
+- Coherence score for topic interpretability
+- Topic overlap to measure topic separation
+- Topic distribution and topic size to identify dominant or underrepresented topics
+- Manual review of the most relevant keywords per topic
+- Selection of the best-performing model for each language based on quantitative metrics and interpretability
 
 ---
 
@@ -113,35 +117,48 @@ The analysis pipeline (analyze_data.py) includes the following steps:
 
 ## Install
 
-Create a virtual environment and install dependencies:
+Create Project Foler
+Create a virtual environment and install dependencies (after downloading Repo):
 
 ```bash
-python -m venv venv
+> python -m venv venv
 ```
 Activate environment:
 ```bash
-.\venv\Scripts\activate
+> .\venv\Scripts\activate
 ```
 Install requirements:
 ```bash
-pip install -r requirements.txt
+(venv)> pip install -r requirements.txt
 ```
 
 ## Usage
 Download Yelp Dataset (Powershell)
 ```Poweshell
-Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip .\Yelp-JSON.zip
+(venv)> Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip .\Yelp-JSON.zip
 ```
 Extract Dataset and copy relevant file to project (cmd)
 ```cmd
-tar -xf .\Yelp-JSON.zip
-tar -xf .\Yelp-JSON\Yelp-JSON\yelp_dataset.tar
-cp .\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json analyze_message_topics/data/
+(venv)> tar -xf .\Yelp-JSON.zip
+(venv)> tar -xf .\Yelp-JSON\Yelp-JSON\yelp_dataset.tar
+(venv)> cp .\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json analyze_message_topics/data/
 ```
 Run the pipeline in the following order:
 1. Generate dataset
 ```bash
-.\python get_data.py
+(venv)> python get_data.py
+data\fragdenstaat_messages_raw.json existiert noch nicht. Daten werden geladen...
+Starte Download von bis zu 1000 Einträgen...
+Current Entries: 48 -> going to next page
+Current Entries: 90 -> going to next page
+...
+Current Entries: 998 -> going to next page
+1000 Einträge heruntergeladen.
+RAW JSON gespeichert unter: data\fragdenstaat_messages_raw.json
+data\yelp_academic_dataset_review.json existiert. Daten werden extrahiert...
+CSV gespeichert unter: data\combined_reviews.csv
+2000 Zeilen geschrieben.
+(venv)>
 ```
 2. Run analyze_data.ipynb in Jupyter Notebook
 
