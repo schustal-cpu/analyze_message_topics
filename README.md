@@ -121,18 +121,16 @@ Prequisities: Python and Git must be installed
 
 Install Jupyterlab
 ```cmd
-py -m pip install --upgrade pip
-py -m pip install --upgrade jupyterlab
-py -m jupyterlab
+python -m pip install --upgrade jupyterlab
 ```
 
 Download Repository (cmd)
 ```cmd
 git clone https://github.com/schustal-cpu/analyze_message_topics.git
-cd analyze_message_topics
 ```
 Clone GerVADER into Repo Folder (cmd)
 ```cmd
+cd analyze_message_topics
 git clone https://github.com/KarstenAMF/GerVADER
 ```
 
@@ -140,8 +138,9 @@ Download Yelp Dataset and copy relevant file to project (Powershell)
 ```Powershell
 Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip -Outfile .\Yelp-JSON.zip
 Expand-Archive -Path ".\Yelp-JSON.zip" -DestinationPath ".\Yelp-JSON"
-Expand-Archive -Path ".\Yelp-JSON\Yelp-JSON\yelp_dataset.tar" -DestinationPath "Yelp-JSON\yelp_dataset.tar"
-Copy-Item ".\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json" ".\data\"
+New-Item -ItemType Directory -Force ".\Yelp-JSON\Yelp JSON\yelp_dataset"
+tar -xf ".\Yelp-JSON\Yelp JSON\yelp_dataset.tar" -C ".\Yelp-JSON\Yelp JSON\yelp_dataset"
+Copy-Item ".\Yelp-JSON\Yelp JSON\yelp_dataset\yelp_academic_dataset_review.json" ".\data\"
 #Remove-Item ".\Yelp-JSON.zip"
 #Remove-Item ".\Yelp-JSON" -Recurse
 ```
@@ -159,9 +158,11 @@ Install requirements:
 ```bash
 (venv)> pip install -r requirements.txt
 ```
-Install venv to IPyKernel für Jupyter Integration (JupyterLab Restart needed afterwards)
+Register venv to IPyKernel für Jupyter Integration (JupyterLab Restart needed afterwards)
 ```bash
 (venv)> python -m ipykernel install --user --name analyze-m-venv --display-name "Python (analyze-m-venv)"
+(venv)> deactivate
+python -m jupyterlab
 ```
 
 
