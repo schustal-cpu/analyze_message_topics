@@ -112,39 +112,62 @@ The analysis pipeline (analyze_data.py) includes the following steps:
 | `src/preprocessing.py`    | Contains text preprocessing logic and an interactive stopword selection loop |
 | `src/model_utils.py`      | Trains LDA and LSA models.              |
 | `src/visualization.py`    | Responsible for visual outputs.                                               |
+| `src/styles.py`    		| Contains Styles for visual outputs.                                           |
 
 ---
 
-## Install
+## Installation
+Prequisities: Python and Git must be installed
 
-Create Project Foler
-Create a virtual environment and install dependencies (after downloading Repo):
+Install Jupyterlab
+```cmd
+py -m pip install --upgrade pip
+py -m pip install --upgrade jupyterlab
+py -m jupyterlab
+```
 
+Download Repository (cmd)
+```cmd
+git clone https://github.com/schustal-cpu/analyze_message_topics.git
+cd analyze_message_topics
+```
+Clone GerVADER into Repo Folder (cmd)
+```cmd
+git clone https://github.com/KarstenAMF/GerVADER
+```
+
+Download Yelp Dataset and copy relevant file to project (Powershell)
+```Powershell
+Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip -Outfile .\Yelp-JSON.zip
+Expand-Archive -Path ".\Yelp-JSON.zip" -DestinationPath ".\Yelp-JSON"
+Expand-Archive -Path ".\Yelp-JSON\Yelp-JSON\yelp_dataset.tar" -DestinationPath "Yelp-JSON\yelp_dataset.tar"
+Copy-Item ".\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json" ".\data\"
+#Remove-Item ".\Yelp-JSON.zip"
+#Remove-Item ".\Yelp-JSON" -Recurse
+```
+
+Create a virtual environment and install dependencies in repository folder (after downloading Repo):
 ```bash
-> python -m venv venv
+#cd analyze_message_topics
+python -m venv venv
 ```
 Activate environment:
 ```bash
-> .\venv\Scripts\activate
+.\venv\Scripts\activate
 ```
 Install requirements:
 ```bash
 (venv)> pip install -r requirements.txt
 ```
+Install venv to IPyKernel für Jupyter Integration (JupyterLab Restart needed afterwards)
+```bash
+(venv)> python -m ipykernel install --user --name analyze-m-venv --display-name "Python (analyze-m-venv)"
+```
+
 
 ## Usage
-Download Yelp Dataset (Powershell)
-```Poweshell
-(venv)> Invoke-WebRequest -Uri https://business.yelp.com/external-assets/files/Yelp-JSON.zip .\Yelp-JSON.zip
-```
-Extract Dataset and copy relevant file to project (cmd)
-```cmd
-(venv)> tar -xf .\Yelp-JSON.zip
-(venv)> tar -xf .\Yelp-JSON\Yelp-JSON\yelp_dataset.tar
-(venv)> cp .\Yelp-JSON\Yelp-JSON\yelp_dataset\yelp_academic_dataset_review.json analyze_message_topics/data/
-```
 Run the pipeline in the following order:
-1. Generate dataset
+1. Generate dataset (CMD)
 ```bash
 (venv)> python get_data.py
 data\fragdenstaat_messages_raw.json existiert noch nicht. Daten werden geladen...
@@ -160,7 +183,7 @@ CSV gespeichert unter: data\combined_reviews.csv
 2000 Zeilen geschrieben.
 (venv)>
 ```
-2. Run analyze_data.ipynb in Jupyter Notebook
+2. Run analyze_data.ipynb in Jupyter Lab/Notebook (select analye-m-venv kernel)
 
 --- 
 ## Output Interpretation
